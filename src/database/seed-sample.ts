@@ -49,7 +49,10 @@ try {
     await connection.db
       .insert(catalogEntities)
       .values({ ...sample, normalizedName: normalizeName(sample.name) })
-      .onConflictDoNothing();
+      .onConflictDoUpdate({
+        target: [catalogEntities.kind, catalogEntities.normalizedName],
+        set: { details: sample.details },
+      });
   }
   console.info("Inserted fictional sample data.");
 } finally {
