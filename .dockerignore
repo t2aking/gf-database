@@ -1,0 +1,12 @@
+.git
+.env
+node_modules
+dist
+data/private
+data/raw
+data/imports
+data/screenshots
+backups
+pgdata
+*.sqlite*
+*.dump

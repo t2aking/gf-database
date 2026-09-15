@@ -1,0 +1,29 @@
+node_modules/
+.pnpm-store/
+dist/
+.vite/
+.vite-plus/
+.env
+.env.*
+!.env.example
+
+# Private or third-party-derived data must never be committed.
+data/private/
+data/raw/
+data/imports/
+data/screenshots/
+backups/
+pgdata/
+*.sqlite
+*.sqlite3
+*.db
+*.dump
+
+# Vite+ generates this dispatcher locally. Project-owned hooks stay tracked.
+.vite-hooks/_/
+
+# Local editor and OS files
+.DS_Store
+.idea/
+.vscode/
+*.log

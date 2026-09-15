@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+
+sh scripts/check-public-data.sh
+vp staged --fail-on-changes

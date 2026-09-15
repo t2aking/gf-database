@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_DB: gf_database
+          POSTGRES_USER: gf
+          POSTGRES_PASSWORD: local-development-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U gf -d gf_database"
+          --health-interval 3s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://gf:local-development-only@127.0.0.1:5432/gf_database
+    steps:
+      - uses: actions/checkout@v6
+      - uses: voidzero-dev/setup-vp@v1.19.0
+        with:
+          node-version: "24.11.0"
+          cache: true
+          run-install: true
+      - run: sh scripts/check-public-data.sh --all
+      - run: vp check
+      - run: vp test
+      - run: pnpm db:migrate
+      - run: vp build

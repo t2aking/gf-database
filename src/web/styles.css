@@ -1,0 +1,35 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: Inter, "Hiragino Sans", "Yu Gothic UI", sans-serif;
+  --font-display: Georgia, "Yu Mincho", serif;
+  --color-canvas: #07120f;
+  --color-surface: #0a1d17;
+  --color-surface-deep: #0b1c17;
+  --color-field: #0d211b;
+  --color-line: #24453a;
+  --color-line-strong: #315448;
+  --color-text: #ecf4f0;
+  --color-text-bright: #edf8f3;
+  --color-muted: #a8c4b9;
+  --color-muted-deep: #829f94;
+  --color-mint: #7cf0be;
+  --color-mint-soft: #73e6b4;
+  --color-mint-hover: #a2f7d4;
+  --shadow-panel: 0 24px 60px rgb(0 0 0 / 18%);
+}
+
+@layer base {
+  :root {
+    color: var(--color-text);
+    background: var(--color-canvas);
+    font-synthesis: none;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    min-width: 320px;
+    min-height: 100vh;
+    background: radial-gradient(circle at 20% 0%, #153c31 0, transparent 40%), var(--color-canvas);
+  }
+}
