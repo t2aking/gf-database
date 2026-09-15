@@ -1,4 +1,5 @@
 import { type FormEvent, useCallback, useEffect, useState } from "react";
+import type { CatalogInput } from "../domain/catalog.js";
 import { api, type CatalogItem } from "./api.js";
 
 const kindLabels = { character: "キャラクター", weapon: "武器", summon: "召喚石" } as const;
@@ -24,8 +25,16 @@ function formString(form: FormData, name: string): string {
   return typeof value === "string" ? value : "";
 }
 
+function formList(form: FormData, name: string): string[] {
+  return formString(form, name)
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+}
+
 export function App() {
   const [items, setItems] = useState<CatalogItem[]>([]);
+  const [createKind, setCreateKind] = useState<CatalogItem["kind"]>("character");
   const [query, setQuery] = useState("");
   const [kind, setKind] = useState("");
   const [ownedOnly, setOwnedOnly] = useState(false);
@@ -62,16 +71,31 @@ export function App() {
     const form = new FormData(event.currentTarget);
     try {
       setError(undefined);
-      await api.createCatalog({
-        kind: formString(form, "kind") as CatalogItem["kind"],
+      const common = {
         name: formString(form, "name"),
         element: (formString(form, "element") || undefined) as CatalogItem["element"],
         rarity: formString(form, "rarity") || undefined,
-        tags: formString(form, "tags")
-          .split(",")
-          .map((tag) => tag.trim())
-          .filter(Boolean),
-      });
+        tags: formList(form, "tags"),
+      };
+      const details =
+        createKind === "character"
+          ? {
+              roles: formList(form, "roles"),
+              weaponProficiencies: formList(form, "weaponProficiencies"),
+              races: formList(form, "races"),
+            }
+          : createKind === "weapon"
+            ? {
+                weaponType: formString(form, "weaponType"),
+                skillEffects: formList(form, "skillEffects"),
+                maxUncapLevel: Number(formString(form, "maxUncapLevel")),
+              }
+            : {
+                auraEffects: formList(form, "auraEffects"),
+                callEffects: formList(form, "callEffects"),
+                maxUncapLevel: Number(formString(form, "maxUncapLevel")),
+              };
+      await api.createCatalog({ kind: createKind, ...common, details } as CatalogInput);
       event.currentTarget.reset();
       await loadItems();
     } catch (caught) {
@@ -139,10 +163,17 @@ export function App() {
       <section className={panelClass}>
         <h2 className={headingClass}>カタログへ追加</h2>
         <form
-          className="grid grid-cols-[1fr_2fr_1fr_1fr_2fr_auto] gap-[0.7rem] max-[850px]:grid-cols-2 max-[560px]:grid-cols-1"
+          className="grid grid-cols-3 gap-[0.7rem] max-[850px]:grid-cols-2 max-[560px]:grid-cols-1"
           onSubmit={createEntity}
         >
-          <select className={fieldClass} name="kind" aria-label="種類" required>
+          <select
+            className={fieldClass}
+            name="kind"
+            aria-label="種類"
+            value={createKind}
+            onChange={(event) => setCreateKind(event.target.value as CatalogItem["kind"])}
+            required
+          >
             {Object.entries(kindLabels).map(([value, label]) => (
               <option key={value} value={value}>
                 {label}
@@ -169,6 +200,73 @@ export function App() {
             name="tags"
             placeholder="役割タグをカンマ区切り（例: heal, dispel）"
           />
+          {createKind === "character" && (
+            <>
+              <input
+                className={fieldClass}
+                name="roles"
+                placeholder="役割（例: attacker, support）"
+                required
+              />
+              <input
+                className={fieldClass}
+                name="weaponProficiencies"
+                placeholder="得意武器（例: sword, dagger）"
+                required
+              />
+              <input className={fieldClass} name="races" placeholder="種族（例: human）" required />
+            </>
+          )}
+          {createKind === "weapon" && (
+            <>
+              <input
+                className={fieldClass}
+                name="weaponType"
+                placeholder="武器種（例: sword）"
+                required
+              />
+              <input
+                className={fieldClass}
+                name="skillEffects"
+                placeholder="スキル分類（例: attack, hp）"
+                required
+              />
+              <input
+                className={fieldClass}
+                name="maxUncapLevel"
+                type="number"
+                min="0"
+                max="10"
+                placeholder="最大上限解放段階"
+                required
+              />
+            </>
+          )}
+          {createKind === "summon" && (
+            <>
+              <input
+                className={fieldClass}
+                name="auraEffects"
+                placeholder="加護分類（例: element-attack）"
+                required
+              />
+              <input
+                className={fieldClass}
+                name="callEffects"
+                placeholder="召喚効果分類（例: damage-cut）"
+                required
+              />
+              <input
+                className={fieldClass}
+                name="maxUncapLevel"
+                type="number"
+                min="0"
+                max="10"
+                placeholder="最大上限解放段階"
+                required
+              />
+            </>
+          )}
           <button className={buttonClass} type="submit">
             追加
           </button>

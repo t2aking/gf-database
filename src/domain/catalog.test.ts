@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vite-plus/test";
-import { rankOwnedCandidates, type Candidate } from "./catalog.js";
+import {
+  capabilityTagsSchema,
+  catalogInputSchema,
+  rankOwnedCandidates,
+  type Candidate,
+} from "./catalog.js";
 
 const candidates: Candidate[] = [
   {
@@ -39,5 +44,42 @@ describe("rankOwnedCandidates", () => {
     });
 
     expect(result[0]?.matchedTags).toEqual(["heal"]);
+  });
+});
+
+describe("catalogInputSchema", () => {
+  it("accepts and normalizes controlled character data", () => {
+    const result = catalogInputSchema.parse({
+      kind: "character",
+      name: "サンプル支援役",
+      element: "wind",
+      tags: [" Damage_Cut ", "回復", "heal"],
+      details: {
+        roles: ["support"],
+        weaponProficiencies: ["staff"],
+        races: ["human"],
+      },
+    });
+
+    expect(result.tags).toEqual(["damage-cut", "heal"]);
+  });
+
+  it("rejects details belonging to another entity kind", () => {
+    const result = catalogInputSchema.safeParse({
+      kind: "weapon",
+      name: "不正な武器",
+      tags: [],
+      details: {
+        roles: ["attacker"],
+        weaponProficiencies: ["sword"],
+        races: ["human"],
+      },
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects unknown capability tags", () => {
+    expect(capabilityTagsSchema.safeParse(["not-managed"]).success).toBe(false);
   });
 });

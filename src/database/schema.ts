@@ -11,6 +11,7 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
+import type { CatalogDetails } from "../domain/catalog.js";
 
 export const entityKind = pgEnum("entity_kind", ["character", "weapon", "summon"]);
 export const element = pgEnum("element", [
@@ -37,6 +38,7 @@ export const catalogEntities = pgTable(
       .array()
       .notNull()
       .default(sql`ARRAY[]::text[]`),
+    details: jsonb("details").$type<CatalogDetails>().notNull(),
     metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

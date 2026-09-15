@@ -33,6 +33,7 @@ export class CatalogRepository {
         element: catalogEntities.element,
         rarity: catalogEntities.rarity,
         tags: catalogEntities.tags,
+        details: catalogEntities.details,
         metadata: catalogEntities.metadata,
         owned: inventoryEntries.id,
         quantity: inventoryEntries.quantity,
@@ -59,6 +60,7 @@ export class CatalogRepository {
           element: input.element,
           rarity: input.rarity,
           tags: input.tags,
+          details: input.details,
         })
         .returning();
 

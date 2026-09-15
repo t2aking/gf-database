@@ -1,3 +1,5 @@
+import type { CatalogDetails, CatalogInput } from "../domain/catalog.js";
+
 export type CatalogItem = {
   id: string;
   kind: "character" | "weapon" | "summon";
@@ -5,6 +7,7 @@ export type CatalogItem = {
   element: "fire" | "water" | "earth" | "wind" | "light" | "dark" | "plain" | null;
   rarity: string | null;
   tags: string[];
+  details: CatalogDetails;
   owned: string | null;
   quantity: number | null;
   uncapLevel: number | null;
@@ -29,13 +32,7 @@ export const api = {
   searchCatalog(params: URLSearchParams) {
     return request<{ items: CatalogItem[] }>(`/api/catalog?${params.toString()}`);
   },
-  createCatalog(input: {
-    kind: CatalogItem["kind"];
-    name: string;
-    element?: CatalogItem["element"];
-    rarity?: string;
-    tags: string[];
-  }) {
+  createCatalog(input: CatalogInput) {
     return request<{ item: CatalogItem }>("/api/catalog", {
       method: "POST",
       body: JSON.stringify(input),

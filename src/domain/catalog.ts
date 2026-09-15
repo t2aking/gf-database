@@ -1,25 +1,162 @@
 import { z } from "zod";
+import { normalizeTags } from "./normalization.js";
 
 export const entityKinds = ["character", "weapon", "summon"] as const;
 export const elements = ["fire", "water", "earth", "wind", "light", "dark", "plain"] as const;
 
-export const catalogInputSchema = z.object({
-  kind: z.enum(entityKinds),
+export const capabilityTags = [
+  "attack",
+  "buff",
+  "charge-boost",
+  "damage-cut",
+  "debuff",
+  "delay",
+  "dispel",
+  "heal",
+  "normal-attack",
+  "revive",
+  "substitute",
+  "veil",
+] as const;
+
+export const characterRoles = [
+  "attacker",
+  "defender",
+  "healer",
+  "support",
+  "special",
+  "unknown",
+] as const;
+export const characterRaces = [
+  "human",
+  "draph",
+  "erune",
+  "harvin",
+  "primal",
+  "other",
+  "unknown",
+] as const;
+export const weaponTypes = [
+  "sword",
+  "dagger",
+  "spear",
+  "axe",
+  "staff",
+  "gun",
+  "melee",
+  "bow",
+  "harp",
+  "katana",
+  "unknown",
+] as const;
+export const weaponSkillEffects = [
+  "attack",
+  "hp",
+  "multiattack",
+  "critical",
+  "stamina",
+  "enmity",
+  "supplemental-damage",
+  "damage-cap",
+  "healing",
+  "charge",
+  "defense",
+  "special",
+  "unknown",
+] as const;
+export const summonAuraEffects = [
+  "element-attack",
+  "character-attack",
+  "weapon-skill",
+  "hp",
+  "defense",
+  "multi-element",
+  "drop-rate",
+  "special",
+  "unknown",
+] as const;
+export const summonCallEffects = [
+  "damage",
+  "buff",
+  "debuff",
+  "heal",
+  "dispel",
+  "damage-cut",
+  "charge",
+  "cooldown",
+  "special",
+  "unknown",
+] as const;
+
+const controlledArray = <T extends readonly [string, ...string[]]>(values: T, maximum: number) =>
+  z.array(z.enum(values)).min(1).max(maximum);
+
+export const characterDetailsSchema = z.strictObject({
+  roles: controlledArray(characterRoles, 3),
+  weaponProficiencies: controlledArray(weaponTypes, 2),
+  races: controlledArray(characterRaces, 2),
+});
+
+export const weaponDetailsSchema = z.strictObject({
+  weaponType: z.enum(weaponTypes),
+  skillEffects: controlledArray(weaponSkillEffects, 10),
+  maxUncapLevel: z.number().int().min(0).max(10),
+});
+
+export const summonDetailsSchema = z.strictObject({
+  auraEffects: controlledArray(summonAuraEffects, 10),
+  callEffects: controlledArray(summonCallEffects, 10),
+  maxUncapLevel: z.number().int().min(0).max(10),
+});
+
+const sourceSchema = z.strictObject({
+  kind: z.enum(["gameplay", "official", "guide", "user"]),
+  url: z.url().nullable().optional(),
+  note: z.string().trim().max(500).nullable().optional(),
+  observedAt: z.iso.datetime(),
+});
+
+const commonInputShape = {
   name: z.string().trim().min(1).max(120),
   element: z.enum(elements).nullable().optional(),
   rarity: z.string().trim().max(20).nullable().optional(),
-  tags: z.array(z.string().trim().min(1).max(50)).max(30).default([]),
-  source: z
-    .object({
-      kind: z.enum(["gameplay", "official", "guide", "user"]),
-      url: z.url().nullable().optional(),
-      note: z.string().trim().max(500).nullable().optional(),
-      observedAt: z.iso.datetime(),
-    })
-    .optional(),
-});
+  tags: z.preprocess(
+    (value) =>
+      Array.isArray(value) && value.every((tag) => typeof tag === "string")
+        ? normalizeTags(value)
+        : value,
+    z.array(z.enum(capabilityTags)).max(30).default([]),
+  ),
+  source: sourceSchema.optional(),
+};
 
-export const inventoryInputSchema = z.object({
+export const catalogInputSchema = z.discriminatedUnion("kind", [
+  z.strictObject({
+    ...commonInputShape,
+    kind: z.literal("character"),
+    details: characterDetailsSchema,
+  }),
+  z.strictObject({
+    ...commonInputShape,
+    kind: z.literal("weapon"),
+    details: weaponDetailsSchema,
+  }),
+  z.strictObject({
+    ...commonInputShape,
+    kind: z.literal("summon"),
+    details: summonDetailsSchema,
+  }),
+]);
+
+export const capabilityTagsSchema = z.preprocess(
+  (value) =>
+    Array.isArray(value) && value.every((tag) => typeof tag === "string")
+      ? normalizeTags(value)
+      : value,
+  z.array(z.enum(capabilityTags)).max(20).default([]),
+);
+
+export const inventoryInputSchema = z.strictObject({
   owned: z.boolean(),
   quantity: z.number().int().min(1).max(999).default(1),
   uncapLevel: z.number().int().min(0).max(10).default(0),
@@ -29,6 +166,11 @@ export const inventoryInputSchema = z.object({
 
 export type EntityKind = (typeof entityKinds)[number];
 export type Element = (typeof elements)[number];
+export type CapabilityTag = (typeof capabilityTags)[number];
+export type CharacterDetails = z.infer<typeof characterDetailsSchema>;
+export type WeaponDetails = z.infer<typeof weaponDetailsSchema>;
+export type SummonDetails = z.infer<typeof summonDetailsSchema>;
+export type CatalogDetails = CharacterDetails | WeaponDetails | SummonDetails;
 export type CatalogInput = z.infer<typeof catalogInputSchema>;
 export type InventoryInput = z.infer<typeof inventoryInputSchema>;
 
@@ -52,7 +194,7 @@ export function rankOwnedCandidates(
   candidates: Candidate[],
   options: { element?: Element; requiredTags?: string[] },
 ): RankedCandidate[] {
-  const requiredTags = [...new Set(options.requiredTags ?? [])];
+  const requiredTags = normalizeTags(options.requiredTags ?? []);
 
   return candidates
     .map((candidate) => {

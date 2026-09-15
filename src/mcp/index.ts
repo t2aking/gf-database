@@ -3,7 +3,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 import { z } from "zod";
 import { createDatabase } from "../database/client.js";
 import { CatalogRepository } from "../database/repository.js";
-import { elements, entityKinds } from "../domain/catalog.js";
+import { capabilityTagsSchema, elements, entityKinds } from "../domain/catalog.js";
 
 const connection = createDatabase();
 const repository = new CatalogRepository(connection.db);
@@ -60,7 +60,7 @@ server.registerTool(
     inputSchema: z.object({
       kind: z.enum(entityKinds).optional(),
       element: z.enum(elements).optional(),
-      requiredTags: z.array(z.string()).max(20).default([]),
+      requiredTags: capabilityTagsSchema,
       limit: z.number().int().min(1).max(50).default(20),
     }),
   },
