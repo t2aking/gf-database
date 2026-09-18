@@ -1,4 +1,4 @@
-import { and, eq, ilike, isNotNull, isNull } from "drizzle-orm";
+import { and, eq, ilike, isNotNull, isNull, sql } from "drizzle-orm";
 import type {
   CatalogInput,
   CatalogUpdate,
@@ -7,6 +7,7 @@ import type {
   InventoryInput,
 } from "../domain/catalog.js";
 import { rankOwnedCandidates } from "../domain/catalog.js";
+import { sourceReviewCutoff, type SourceInput, type SourceStatus } from "../domain/sources.js";
 import { normalizeName } from "../domain/normalization.js";
 import type { Database } from "./client.js";
 import { catalogEntities, inventoryEntries, sourceReferences } from "./schema.js";
@@ -16,6 +17,7 @@ export type CatalogSearch = {
   kind?: EntityKind;
   element?: Element;
   owned?: boolean;
+  sourceStatus?: SourceStatus;
   limit?: number;
 };
 
@@ -23,7 +25,14 @@ export class CatalogRepository {
   constructor(private readonly db: Database) {}
 
   async search(options: CatalogSearch = {}) {
+    const sourceCount = sql<number>`(select count(*)::int from ${sourceReferences} where ${sourceReferences.entityId} = ${catalogEntities.id})`;
+    const lastConfirmedAt =
+      sql<Date | null>`(select max(greatest(${sourceReferences.observedAt}, ${sourceReferences.verifiedAt})) from ${sourceReferences} where ${sourceReferences.entityId} = ${catalogEntities.id})`.mapWith(
+        sourceReferences.observedAt,
+      );
+    const sourceStatus = sql<SourceStatus>`case when ${sourceCount} = 0 then 'missing' when ${lastConfirmedAt} <= ${sourceReviewCutoff().toISOString()} then 'stale' else 'current' end`;
     const conditions = [];
+    if (options.sourceStatus) conditions.push(sql`${sourceStatus} = ${options.sourceStatus}`);
     if (options.query)
       conditions.push(ilike(catalogEntities.normalizedName, `%${normalizeName(options.query)}%`));
     if (options.kind) conditions.push(eq(catalogEntities.kind, options.kind));
@@ -47,6 +56,9 @@ export class CatalogRepository {
         awakeningLevel: inventoryEntries.awakeningLevel,
         notes: inventoryEntries.notes,
         updatedAt: catalogEntities.updatedAt,
+        sourceCount,
+        lastConfirmedAt,
+        sourceStatus,
       })
       .from(catalogEntities)
       .leftJoin(inventoryEntries, eq(inventoryEntries.entityId, catalogEntities.id))
@@ -79,6 +91,7 @@ export class CatalogRepository {
           url: input.source.url,
           note: input.source.note,
           observedAt: new Date(input.source.observedAt),
+          verifiedAt: input.source.verifiedAt ? new Date(input.source.verifiedAt) : null,
         });
       }
 
@@ -99,7 +112,8 @@ export class CatalogRepository {
     const sources = await this.db
       .select()
       .from(sourceReferences)
-      .where(eq(sourceReferences.entityId, entityId));
+      .where(eq(sourceReferences.entityId, entityId))
+      .orderBy(sourceReferences.createdAt, sourceReferences.id);
     return { ...entity, inventory: inventory ?? null, sources };
   }
 
@@ -157,6 +171,49 @@ export class CatalogRepository {
       })
       .returning();
     return entry ?? null;
+  }
+
+  async listSources(entityId: string) {
+    const detail = await this.get(entityId);
+    return detail?.sources ?? null;
+  }
+
+  async createSource(entityId: string, input: SourceInput) {
+    const [source] = await this.db
+      .insert(sourceReferences)
+      .values({
+        entityId,
+        kind: input.kind,
+        url: input.url ?? null,
+        note: input.note ?? null,
+        observedAt: new Date(input.observedAt),
+        verifiedAt: input.verifiedAt ? new Date(input.verifiedAt) : null,
+      })
+      .returning();
+    return source ?? null;
+  }
+
+  async updateSource(entityId: string, sourceId: string, input: SourceInput) {
+    const [source] = await this.db
+      .update(sourceReferences)
+      .set({
+        kind: input.kind,
+        url: input.url ?? null,
+        note: input.note ?? null,
+        observedAt: new Date(input.observedAt),
+        verifiedAt: input.verifiedAt ? new Date(input.verifiedAt) : null,
+      })
+      .where(and(eq(sourceReferences.entityId, entityId), eq(sourceReferences.id, sourceId)))
+      .returning();
+    return source ?? null;
+  }
+
+  async deleteSource(entityId: string, sourceId: string) {
+    const [source] = await this.db
+      .delete(sourceReferences)
+      .where(and(eq(sourceReferences.entityId, entityId), eq(sourceReferences.id, sourceId)))
+      .returning({ id: sourceReferences.id });
+    return source ?? null;
   }
 
   async inventorySummary() {

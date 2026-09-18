@@ -12,6 +12,8 @@ import {
   type FieldErrors,
 } from "./CatalogFields.js";
 
+import { SourceManager } from "./SourceManager.js";
+
 export function CatalogEditor({
   entityId,
   onClose,
@@ -58,13 +60,13 @@ export function CatalogEditor({
     if (caught instanceof ApiError) setErrors?.(caught.fieldErrors);
     setError(caught instanceof Error ? caught.message : "操作に失敗しました。");
   }
-  async function refresh(saved: "catalog" | "inventory") {
+  async function refresh(saved: "catalog" | "inventory" | "sources") {
     const { item: detail } = await api.getCatalog(entityId);
     setItem(detail);
     if (saved === "catalog") {
       setKind(detail.kind);
       setCatalogRevision((value) => value + 1);
-    } else {
+    } else if (saved === "inventory") {
       setInventoryRevision((value) => value + 1);
     }
     await onChanged();
@@ -308,16 +310,13 @@ export function CatalogEditor({
                 )}
               </fieldset>
             </form>
-            <h3 className="mt-6 font-bold">出典情報（{item.sources.length}件）</h3>
-            <ul className="my-3 grid gap-2">
-              {item.sources.map((source) => (
-                <li key={source.id} className="break-words text-sm">
-                  {source.kind} · {source.observedAt}
-                  {source.url && <span className="block">{source.url}</span>}
-                  {source.note && <span className="block">{source.note}</span>}
-                </li>
-              ))}
-            </ul>
+            <SourceManager
+              entityId={entityId}
+              sources={item.sources}
+              busy={busy}
+              setBusy={setBusy}
+              onSaved={() => refresh("sources")}
+            />
             <button
               className={buttonClass}
               disabled={busy}

@@ -12,6 +12,8 @@ import {
   inventoryInputSchema,
 } from "../domain/catalog.js";
 
+import { sourceInputSchema, sourceStatuses } from "../domain/sources.js";
+
 const idSchema = z.uuid();
 const allowedOrigins = new Set(["http://127.0.0.1:5173", "http://localhost:5173"]);
 
@@ -46,6 +48,11 @@ export function createApp(repository: CatalogRepository) {
   app.get("/api/catalog", async (context) => {
     const kind = z.enum(entityKinds).safeParse(context.req.query("kind"));
     const element = z.enum(elements).safeParse(context.req.query("element"));
+    const sourceStatus = z
+      .enum(sourceStatuses)
+      .optional()
+      .safeParse(context.req.query("sourceStatus"));
+    if (!sourceStatus.success) return context.json({ error: "Invalid source status." }, 400);
     const ownedValue = context.req.query("owned");
     const owned = ownedValue === "true" ? true : ownedValue === "false" ? false : undefined;
     const rows = await repository.search({
@@ -53,6 +60,7 @@ export function createApp(repository: CatalogRepository) {
       kind: kind.success ? kind.data : undefined,
       element: element.success ? element.data : undefined,
       owned,
+      sourceStatus: sourceStatus.data,
     });
     return context.json({ items: rows });
   });
@@ -97,6 +105,49 @@ export function createApp(repository: CatalogRepository) {
       return context.json({ item });
     },
   );
+
+  app.get("/api/catalog/:entityId/sources", async (context) => {
+    const id = idSchema.safeParse(context.req.param("entityId"));
+    if (!id.success) return context.json({ error: "Invalid entity id." }, 400);
+    const items = await repository.listSources(id.data);
+    if (!items) return context.json({ error: "Catalog item not found." }, 404);
+    return context.json({ items });
+  });
+
+  app.post(
+    "/api/catalog/:entityId/sources",
+    zValidator("json", sourceInputSchema, validationHook),
+    async (context) => {
+      const id = idSchema.safeParse(context.req.param("entityId"));
+      if (!id.success) return context.json({ error: "Invalid entity id." }, 400);
+      if (!(await repository.get(id.data)))
+        return context.json({ error: "Catalog item not found." }, 404);
+      const item = await repository.createSource(id.data, context.req.valid("json"));
+      return context.json({ item }, 201);
+    },
+  );
+
+  app.put(
+    "/api/catalog/:entityId/sources/:sourceId",
+    zValidator("json", sourceInputSchema, validationHook),
+    async (context) => {
+      const id = idSchema.safeParse(context.req.param("entityId"));
+      const sourceId = idSchema.safeParse(context.req.param("sourceId"));
+      if (!id.success || !sourceId.success) return context.json({ error: "Invalid id." }, 400);
+      const item = await repository.updateSource(id.data, sourceId.data, context.req.valid("json"));
+      if (!item) return context.json({ error: "Source not found." }, 404);
+      return context.json({ item });
+    },
+  );
+
+  app.delete("/api/catalog/:entityId/sources/:sourceId", async (context) => {
+    const id = idSchema.safeParse(context.req.param("entityId"));
+    const sourceId = idSchema.safeParse(context.req.param("sourceId"));
+    if (!id.success || !sourceId.success) return context.json({ error: "Invalid id." }, 400);
+    const item = await repository.deleteSource(id.data, sourceId.data);
+    if (!item) return context.json({ error: "Source not found." }, 404);
+    return context.json({ item });
+  });
 
   app.put(
     "/api/inventory/:entityId",

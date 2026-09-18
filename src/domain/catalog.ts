@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { sourceInputSchema } from "./sources.js";
 import { normalizeTags } from "./normalization.js";
 
 export const entityKinds = ["character", "weapon", "summon"] as const;
@@ -109,13 +110,6 @@ export const summonDetailsSchema = z.strictObject({
   maxUncapLevel: z.number().int().min(0).max(10),
 });
 
-const sourceSchema = z.strictObject({
-  kind: z.enum(["gameplay", "official", "guide", "user"]),
-  url: z.url().nullable().optional(),
-  note: z.string().trim().max(500).nullable().optional(),
-  observedAt: z.iso.datetime(),
-});
-
 const commonInputShape = {
   name: z.string().trim().min(1).max(120),
   element: z.enum(elements).nullable().optional(),
@@ -152,7 +146,7 @@ function catalogSchema<T extends z.ZodRawShape>(extra: T) {
   ]);
 }
 
-export const catalogInputSchema = catalogSchema({ source: sourceSchema.optional() });
+export const catalogInputSchema = catalogSchema({ source: sourceInputSchema.optional() });
 export const catalogUpdateSchema = catalogSchema({});
 
 export const capabilityTagsSchema = z.preprocess(
