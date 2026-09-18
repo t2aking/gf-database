@@ -6,6 +6,8 @@ import type {
   EntityKind,
   InventoryInput,
 } from "../domain/catalog.js";
+import { catalogUpdateSchema } from "../domain/catalog.js";
+import { parseImportCsv, type ImportPreview } from "../domain/csv-import.js";
 import { rankOwnedCandidates } from "../domain/catalog.js";
 import { sourceReviewCutoff, type SourceInput, type SourceStatus } from "../domain/sources.js";
 import { normalizeName } from "../domain/normalization.js";
@@ -214,6 +216,120 @@ export class CatalogRepository {
       .where(and(eq(sourceReferences.entityId, entityId), eq(sourceReferences.id, sourceId)))
       .returning({ id: sourceReferences.id });
     return source ?? null;
+  }
+
+  private async prepareImport(csv: string, db: Pick<Database, "select"> = this.db) {
+    const parsed = parseImportCsv(csv);
+    const errors = [...parsed.errors];
+    const ready = [];
+    const items: ImportPreview["items"] = [];
+    for (const row of parsed.rows) {
+      const [existing] = await db
+        .select()
+        .from(catalogEntities)
+        .where(
+          and(
+            eq(catalogEntities.kind, row.catalog.kind),
+            eq(catalogEntities.normalizedName, normalizeName(row.catalog.name)),
+          ),
+        );
+      const catalog = catalogUpdateSchema.safeParse({
+        ...row.catalog,
+        details: row.catalog.details ?? existing?.details,
+      });
+      if (!catalog.success) {
+        for (const issue of catalog.error.issues)
+          errors.push({
+            line: row.line,
+            field: issue.path.join(".") || "catalog",
+            message:
+              issue.path[0] === "details" && !row.catalog.details && !existing
+                ? "新規登録ではdetailsが必須です。"
+                : issue.message,
+          });
+        continue;
+      }
+      ready.push({
+        catalog: catalog.data,
+        inventory: row.inventory,
+        preserveDetails: row.catalog.details === undefined,
+      });
+      items.push({
+        line: row.line,
+        kind: catalog.data.kind,
+        name: catalog.data.name,
+        action: existing ? "update" : "create",
+        owned: row.inventory.owned,
+        quantity: row.inventory.quantity,
+      });
+    }
+    const preview: ImportPreview = {
+      total: parsed.total,
+      newCount: items.filter((item) => item.action === "create").length,
+      updateCount: items.filter((item) => item.action === "update").length,
+      errorCount: new Set(errors.map((error) => error.line)).size,
+      errors,
+      items,
+    };
+    return { preview, ready };
+  }
+
+  async previewImport(csv: string) {
+    return (await this.prepareImport(csv)).preview;
+  }
+
+  async applyImport(csv: string, authorize: (preview: ImportPreview) => boolean) {
+    return this.db.transaction(
+      async (tx) => {
+        const { preview, ready } = await this.prepareImport(csv, tx);
+        if (preview.errors.length) return { preview, applied: false, conflict: false };
+        if (!authorize(preview)) return { preview, applied: false, conflict: true };
+        for (const { catalog, inventory, preserveDetails } of ready) {
+          const values = {
+            kind: catalog.kind,
+            name: catalog.name,
+            normalizedName: normalizeName(catalog.name),
+            element: catalog.element ?? null,
+            rarity: catalog.rarity ?? null,
+            tags: catalog.tags,
+            details: catalog.details,
+          };
+          const [entity] = await tx
+            .insert(catalogEntities)
+            .values(values)
+            .onConflictDoUpdate({
+              target: [catalogEntities.kind, catalogEntities.normalizedName],
+              set: {
+                ...values,
+                details: preserveDetails ? sql`${catalogEntities.details}` : values.details,
+                updatedAt: new Date(),
+              },
+            })
+            .returning({ id: catalogEntities.id });
+          if (!entity) throw new Error("Import write failed.");
+          if (!inventory.owned)
+            await tx.delete(inventoryEntries).where(eq(inventoryEntries.entityId, entity.id));
+          else {
+            const values = {
+              entityId: entity.id,
+              quantity: inventory.quantity,
+              uncapLevel: inventory.uncapLevel,
+              awakeningLevel: inventory.awakeningLevel ?? null,
+              notes: inventory.notes ?? null,
+            };
+            await tx
+              .insert(inventoryEntries)
+              .values(values)
+              .onConflictDoUpdate({
+                target: inventoryEntries.entityId,
+                set: { ...values, updatedAt: new Date() },
+              });
+          }
+        }
+        return { preview, applied: true, conflict: false };
+      },
+      { isolationLevel: "serializable" },
+    );
   }
 
   async inventorySummary() {

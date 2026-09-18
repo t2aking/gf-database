@@ -10,7 +10,7 @@ fi
 violations=""
 for file in $files; do
   case "$file" in
-    data/private/*|data/raw/*|data/imports/*|data/screenshots/*|backups/*|pgdata/*|*.sqlite|*.sqlite3|*.db|*.dump)
+    data/private/*|data/raw/*|data/imports/*|data/screenshots/*|backups/*|pgdata/*|*.sqlite|*.sqlite3|*.db|*.dump|*.[cC][sS][vV])
       violations="${violations}\n${file}"
       ;;
     .env|.env.*)

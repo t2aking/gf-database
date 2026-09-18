@@ -18,6 +18,7 @@ pgdata/
 *.sqlite3
 *.db
 *.dump
+*.[cC][sS][vV]
 
 # Vite+ generates this dispatcher locally. Project-owned hooks stay tracked.
 .vite-hooks/_/

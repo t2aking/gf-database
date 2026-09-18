@@ -1,3 +1,4 @@
+import type { ImportPreview } from "../domain/csv-import.js";
 import type { SourceInput, SourceStatus } from "../domain/sources.js";
 import type {
   CatalogDetails,
@@ -50,6 +51,7 @@ export class ApiError extends Error {
   constructor(
     message: string,
     readonly fieldErrors: Record<string, string[]> = {},
+    readonly importPreview?: ImportPreview,
   ) {
     super(message);
   }
@@ -66,13 +68,30 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
     const body = (await response.json().catch(() => null)) as {
       error?: string;
       fieldErrors?: Record<string, string[]>;
+      preview?: ImportPreview;
     } | null;
-    throw new ApiError(body?.error ?? `Request failed (${response.status})`, body?.fieldErrors);
+    throw new ApiError(
+      body?.error ?? `Request failed (${response.status})`,
+      body?.fieldErrors,
+      body?.preview,
+    );
   }
   return response.json() as Promise<T>;
 }
 
 export const api = {
+  previewImport(csv: string) {
+    return request<{ preview: ImportPreview; token: string | null }>("/api/import/preview", {
+      method: "POST",
+      body: JSON.stringify({ csv }),
+    });
+  },
+  applyImport(csv: string, token: string) {
+    return request<{ preview: ImportPreview; applied: boolean }>("/api/import/apply", {
+      method: "POST",
+      body: JSON.stringify({ csv, token, confirm: true }),
+    });
+  },
   searchCatalog(params: URLSearchParams) {
     return request<{ items: CatalogItem[] }>(`/api/catalog?${params.toString()}`);
   },
