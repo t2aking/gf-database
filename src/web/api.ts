@@ -1,3 +1,4 @@
+import type { SourceInput, SourceStatus } from "../domain/sources.js";
 import type {
   CatalogDetails,
   CatalogInput,
@@ -18,6 +19,9 @@ export type CatalogItem = {
   uncapLevel: number | null;
   notes: string | null;
   awakeningLevel: number | null;
+  sourceCount: number;
+  lastConfirmedAt: string | null;
+  sourceStatus: SourceStatus;
 };
 
 export type CatalogDetail = Pick<
@@ -30,13 +34,16 @@ export type CatalogDetail = Pick<
     awakeningLevel: number | null;
     notes: string | null;
   } | null;
-  sources: Array<{
-    id: string;
-    kind: string;
-    url: string | null;
-    note: string | null;
-    observedAt: string;
-  }>;
+  sources: SourceReference[];
+};
+
+export type SourceReference = {
+  id: string;
+  kind: SourceInput["kind"];
+  url: string | null;
+  note: string | null;
+  observedAt: string;
+  verifiedAt: string | null;
 };
 
 export class ApiError extends Error {
@@ -86,6 +93,21 @@ export const api = {
       method: "DELETE",
       body: JSON.stringify({ confirm: true }),
     });
+  },
+  createSource(entityId: string, input: SourceInput) {
+    return request<{ item: SourceReference }>(`/api/catalog/${entityId}/sources`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  },
+  updateSource(entityId: string, sourceId: string, input: SourceInput) {
+    return request<{ item: SourceReference }>(`/api/catalog/${entityId}/sources/${sourceId}`, {
+      method: "PUT",
+      body: JSON.stringify(input),
+    });
+  },
+  deleteSource(entityId: string, sourceId: string) {
+    return request(`/api/catalog/${entityId}/sources/${sourceId}`, { method: "DELETE" });
   },
   setInventory(entityId: string, input: InventoryInput) {
     return request(`/api/inventory/${entityId}`, { method: "PUT", body: JSON.stringify(input) });

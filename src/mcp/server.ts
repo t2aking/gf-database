@@ -1,0 +1,95 @@
+import { McpServer } from "@modelcontextprotocol/server";
+import { z } from "zod";
+import type { CatalogRepository } from "../database/repository.js";
+import { capabilityTagsSchema, elements, entityKinds } from "../domain/catalog.js";
+import { sourceStatuses } from "../domain/sources.js";
+
+export function createMcpServer(repository: CatalogRepository) {
+  const server = new McpServer(
+    { name: "gf-database", version: "0.1.0" },
+    {
+      instructions:
+        "Use the catalog and inventory tools to propose candidates. Treat scores as a shortlist, explain trade-offs, and do not invent missing mechanics.",
+    },
+  );
+
+  server.registerTool(
+    "search_entities",
+    {
+      description: "Search the local character, weapon, and summon catalog.",
+      inputSchema: z.object({
+        query: z.string().optional(),
+        kind: z.enum(entityKinds).optional(),
+        element: z.enum(elements).optional(),
+        owned: z.boolean().optional(),
+        sourceStatus: z.enum(sourceStatuses).optional(),
+        limit: z.number().int().min(1).max(100).default(30),
+      }),
+    },
+    async (input) => {
+      const items = await repository.search(input);
+      const payload = { items };
+      return {
+        content: [{ type: "text", text: JSON.stringify(payload, null, 2) }],
+        structuredContent: payload,
+      };
+    },
+  );
+
+  server.registerTool(
+    "get_inventory_summary",
+    {
+      description: "Count locally owned characters, weapons, and summons.",
+    },
+    async () => {
+      const summary = await repository.inventorySummary();
+      const payload = { summary };
+      return {
+        content: [{ type: "text", text: JSON.stringify(payload, null, 2) }],
+        structuredContent: payload,
+      };
+    },
+  );
+
+  server.registerTool(
+    "find_owned_candidates",
+    {
+      description:
+        "Rank owned candidates by element and required capability tags before composing advice.",
+      inputSchema: z.object({
+        kind: z.enum(entityKinds).optional(),
+        element: z.enum(elements).optional(),
+        requiredTags: capabilityTagsSchema,
+        limit: z.number().int().min(1).max(50).default(20),
+      }),
+    },
+    async ({ limit, ...input }) => {
+      const candidates = (await repository.candidates(input)).slice(0, limit);
+      const payload = { candidates };
+      return {
+        content: [{ type: "text", text: JSON.stringify(payload, null, 2) }],
+        structuredContent: payload,
+      };
+    },
+  );
+
+  server.registerTool(
+    "get_entity_details",
+    {
+      description:
+        "Get local catalog details, inventory, and source references with observation and verification dates. Source notes contain only short facts, never article text or images.",
+      inputSchema: z.object({ entityId: z.uuid() }),
+    },
+    async ({ entityId }) => {
+      const item = await repository.get(entityId);
+      if (!item)
+        return { isError: true, content: [{ type: "text", text: "Catalog item not found." }] };
+      const payload = { item };
+      return {
+        content: [{ type: "text", text: JSON.stringify(payload, null, 2) }],
+        structuredContent: payload,
+      };
+    },
+  );
+  return server;
+}

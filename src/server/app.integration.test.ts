@@ -155,4 +155,103 @@ describe.skipIf(!testUrl)("catalog API with PostgreSQL", () => {
     expect((await send(`/api/catalog/${id}`, "DELETE", { confirm: true })).status).toBe(404);
     expect((await send(`/api/inventory/${id}`, "PUT", { owned: true })).status).toBe(404);
   });
+  it("manages multiple scoped sources and preserves data on invalid updates", async () => {
+    const id = await create("架空の出典CRUD対象");
+    const otherId = await create("架空の出典別対象");
+    const path = `/api/catalog/${id}/sources`;
+    const values = {
+      kind: "official",
+      url: "https://example.com/facts",
+      note: "架空の事実メモ",
+      observedAt: "2026-01-01T00:00:00Z",
+      verifiedAt: "2026-02-01T00:00:00Z",
+    };
+    const created = await send(path, "POST", values);
+    expect(created.status).toBe(201);
+    const sourceId = ((await created.json()) as { item: { id: string } }).item.id;
+    expect((await repository.get(id))?.sources).toHaveLength(2);
+    expect(await (await app.request(path)).json()).toMatchObject({
+      items: [{ kind: "user" }, { kind: "official", verifiedAt: "2026-02-01T00:00:00.000Z" }],
+    });
+    expect(
+      (await send(`${path}/${sourceId}`, "PUT", { ...values, url: "javascript:alert(1)" })).status,
+    ).toBe(400);
+    expect(
+      (await send(`${path}/${sourceId}`, "PUT", { ...values, observedAt: "2026-02-30T00:00:00Z" }))
+        .status,
+    ).toBe(400);
+    expect((await send(`/api/catalog/${otherId}/sources/${sourceId}`, "PUT", values)).status).toBe(
+      404,
+    );
+    expect((await send(`/api/catalog/${otherId}/sources/${sourceId}`, "DELETE")).status).toBe(404);
+    expect((await repository.get(id))?.sources.find((source) => source.id === sourceId)?.url).toBe(
+      "https://example.com/facts",
+    );
+    expect(
+      (
+        await send(`${path}/${sourceId}`, "PUT", {
+          ...values,
+          kind: "gameplay",
+          url: null,
+          note: null,
+          verifiedAt: null,
+        })
+      ).status,
+    ).toBe(200);
+    expect(
+      (await repository.get(id))?.sources.find((source) => source.id === sourceId),
+    ).toMatchObject({ kind: "gameplay", url: null, note: null, verifiedAt: null });
+    expect((await send(`${path}/${sourceId}`, "DELETE")).status).toBe(200);
+    expect((await repository.get(id))?.sources).toHaveLength(1);
+    expect((await send(`${path}/${sourceId}`, "DELETE")).status).toBe(404);
+    const missingId = randomUUID();
+    expect((await send(`/api/catalog/${missingId}/sources`, "POST", values)).status).toBe(404);
+    expect((await app.request(`/api/catalog/${missingId}/sources`)).status).toBe(404);
+    expect((await app.request("/api/catalog/invalid/sources")).status).toBe(400);
+  });
+  it("filters missing and stale sources before limiting and considers the newest verification", async () => {
+    const missing = await create("架空の出典未登録");
+    const stale = await create("架空の出典古い");
+    const current = await create("架空の出典最新");
+    await client.unsafe("DELETE FROM source_references WHERE entity_id = $1", [missing]);
+    await client.unsafe(
+      "UPDATE source_references SET observed_at = now() - interval '91 days' WHERE entity_id = $1",
+      [stale],
+    );
+    await client.unsafe(
+      "UPDATE source_references SET observed_at = now() - interval '200 days', verified_at = now() WHERE entity_id = $1",
+      [current],
+    );
+    await repository.createSource(current, {
+      kind: "gameplay",
+      observedAt: "2020-01-01T00:00:00Z",
+    });
+    const ids = (
+      await repository.search({ query: "架空の出典", sourceStatus: "missing", limit: 1 })
+    ).map((item) => item.id);
+    expect(ids).toEqual([missing]);
+    expect(
+      (await repository.search({ query: "架空の出典古い", sourceStatus: "stale" })).map(
+        (item) => item.id,
+      ),
+    ).toEqual([stale]);
+    expect(
+      await repository.search({ query: "架空の出典最新", sourceStatus: "stale" }),
+    ).toHaveLength(0);
+    expect(
+      await (
+        await app.request(
+          "/api/catalog?query=" + encodeURIComponent("架空の出典未登録") + "&sourceStatus=missing",
+        )
+      ).json(),
+    ).toMatchObject({
+      items: [{ id: missing, sourceCount: 0, sourceStatus: "missing", lastConfirmedAt: null }],
+    });
+    expect((await repository.search({ query: "架空の出典最新" }))[0]).toMatchObject({
+      sourceCount: 2,
+      sourceStatus: "current",
+      lastConfirmedAt: expect.any(Date),
+    });
+    expect((await app.request("/api/catalog?sourceStatus=invalid")).status).toBe(400);
+  });
 });

@@ -13,6 +13,8 @@ import {
 } from "./CatalogFields.js";
 import { CatalogEditor } from "./CatalogEditor.js";
 
+import { sourceStatusLabels, sourceReviewDays, type SourceStatus } from "../domain/sources.js";
+
 const panelClass = "mt-4 rounded-2xl border border-line bg-surface/85 p-[1.4rem] shadow-panel";
 const headingClass = "mb-4 text-[1.1rem] font-bold";
 
@@ -24,6 +26,7 @@ export function App() {
   const [createKind, setCreateKind] = useState<CatalogItem["kind"]>("character");
   const [query, setQuery] = useState("");
   const [kind, setKind] = useState("");
+  const [sourceStatus, setSourceStatus] = useState<SourceStatus | "">("");
   const [ownedOnly, setOwnedOnly] = useState(false);
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
@@ -36,6 +39,7 @@ export function App() {
     const params = new URLSearchParams();
     if (query) params.set("query", query);
     if (kind) params.set("kind", kind);
+    if (sourceStatus) params.set("sourceStatus", sourceStatus);
     if (ownedOnly) params.set("owned", "true");
     try {
       setBusy(true);
@@ -46,7 +50,7 @@ export function App() {
     } finally {
       setBusy(false);
     }
-  }, [kind, ownedOnly, query]);
+  }, [kind, ownedOnly, query, sourceStatus]);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => void loadItems(), 150);
@@ -165,7 +169,7 @@ export function App() {
             {busy ? "読み込み中…" : `${items.length}件`}
           </span>
         </div>
-        <div className="mb-4 grid grid-cols-[2fr_1fr_auto] gap-[0.7rem] max-[560px]:grid-cols-1">
+        <div className="mb-4 grid grid-cols-[2fr_1fr_1fr_auto] max-[850px]:grid-cols-2 gap-[0.7rem] max-[560px]:grid-cols-1">
           <input
             className={fieldClass}
             value={query}
@@ -185,6 +189,22 @@ export function App() {
               </option>
             ))}
           </select>
+          <label className="grid gap-1 text-sm">
+            出典の状態
+            <select
+              className={fieldClass}
+              value={sourceStatus}
+              onChange={(event) => setSourceStatus(event.target.value as SourceStatus | "")}
+              aria-label="出典の状態で絞り込み"
+            >
+              <option value="">すべて</option>
+              {Object.entries(sourceStatusLabels).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </label>
           <label className="flex items-center gap-2 px-2 whitespace-nowrap">
             <input
               className="size-auto accent-mint"
@@ -196,6 +216,9 @@ export function App() {
           </label>
         </div>
 
+        <p className="mb-3 text-sm text-muted">
+          要再確認: 出典の最新の確認日・検証日から{sourceReviewDays}日以上経過した項目。
+        </p>
         <div className="grid gap-[0.55rem]">
           {items.length === 0 && !busy && (
             <p className="p-8 text-center text-[#78968b]">
@@ -219,6 +242,14 @@ export function App() {
               </label>
               <div className="grid gap-1">
                 <strong>{item.name}</strong>
+                <small
+                  className={item.sourceStatus === "current" ? "text-muted" : "text-[#eadb8e]"}
+                >
+                  {sourceStatusLabels[item.sourceStatus]} · 出典 {item.sourceCount}件
+                  {item.lastConfirmedAt
+                    ? ` · 最終確認 ${new Date(item.lastConfirmedAt).toLocaleDateString("ja-JP")}`
+                    : ""}
+                </small>
                 <button
                   className="text-left text-sm text-mint underline"
                   type="button"
