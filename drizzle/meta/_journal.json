@@ -8,6 +8,13 @@
       "when": 1789440890263,
       "tag": "0000_dark_ser_duncan",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1789479982711,
+      "tag": "0001_structured_catalog_details",
+      "breakpoints": true
     }
   ]
 }

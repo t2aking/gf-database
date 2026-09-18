@@ -5,6 +5,7 @@ import { z } from "zod";
 import type { CatalogRepository } from "../database/repository.js";
 import {
   catalogInputSchema,
+  capabilityTagsSchema,
   elements,
   entityKinds,
   inventoryInputSchema,
@@ -64,7 +65,7 @@ export function createApp(repository: CatalogRepository) {
       z.object({
         kind: z.enum(entityKinds).optional(),
         element: z.enum(elements).optional(),
-        requiredTags: z.array(z.string().trim().min(1).max(50)).max(20).default([]),
+        requiredTags: capabilityTagsSchema,
       }),
     ),
     async (context) => {

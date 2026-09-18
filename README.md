@@ -72,6 +72,63 @@ vp run db:generate
 vp run db:migrate
 ```
 
+### データ入力仕様
+
+`catalog_entities` の名称、種類、属性、レアリティ、タグは検索・絞り込み・一意性判定に使うため通常カラムへ保存します。種類ごとに形が異なり、ひとまとまりで読み書きする事実は `details` JSONB へ保存します。将来の任意の補足事実には `metadata` JSONB を使いますが、検索条件になった項目は通常カラムへの昇格を検討します。
+
+新規入力の `details` は種類ごとに次の全項目が必須です。判断できない既存データの移行に限り、管理値 `unknown` を利用できます。
+
+| 種類        | `details` のMVP必須項目                                                                                                |
+| ----------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `character` | `roles`（役割、1〜3件）、`weaponProficiencies`（得意武器、1〜2件）、`races`（種族、1〜2件）                            |
+| `weapon`    | `weaponType`（武器種）、`skillEffects`（スキル効果分類、1〜10件）、`maxUncapLevel`（最大上限解放段階、0〜10）          |
+| `summon`    | `auraEffects`（加護分類、1〜10件）、`callEffects`（召喚効果分類、1〜10件）、`maxUncapLevel`（最大上限解放段階、0〜10） |
+
+管理語彙は以下のとおりです。値は英小文字の kebab-case で入力します。
+
+- キャラクター役割: `attacker`, `defender`, `healer`, `support`, `special`, `unknown`
+- 種族: `human`, `draph`, `erune`, `harvin`, `primal`, `other`, `unknown`
+- 武器種・得意武器: `sword`, `dagger`, `spear`, `axe`, `staff`, `gun`, `melee`, `bow`, `harp`, `katana`, `unknown`
+- 武器スキル効果: `attack`, `hp`, `multiattack`, `critical`, `stamina`, `enmity`, `supplemental-damage`, `damage-cap`, `healing`, `charge`, `defense`, `special`, `unknown`
+- 召喚石の加護: `element-attack`, `character-attack`, `weapon-skill`, `hp`, `defense`, `multi-element`, `drop-rate`, `special`, `unknown`
+- 召喚効果: `damage`, `buff`, `debuff`, `heal`, `dispel`, `damage-cut`, `charge`, `cooldown`, `special`, `unknown`
+
+推薦用タグは効果の有無を表す横断的な語彙です。強度・成功率・条件は表しません。
+
+| タグ            | 一意な定義                                   |
+| --------------- | -------------------------------------------- |
+| `attack`        | 主用途が直接ダメージまたは攻撃性能の向上     |
+| `buff`          | 味方へ有利な状態変化を付与                   |
+| `charge-boost`  | 奥義ゲージまたは奥義発動頻度を増加           |
+| `damage-cut`    | 味方が受けるダメージを割合または固定量で軽減 |
+| `debuff`        | 敵へ弱体状態を付与                           |
+| `delay`         | 敵の特殊技発動までの進行を遅延               |
+| `dispel`        | 敵の強化状態を解除                           |
+| `heal`          | 味方のHPを回復                               |
+| `normal-attack` | 通常攻撃の性能または回数を主に強化           |
+| `revive`        | 戦闘不能の味方を復帰                         |
+| `substitute`    | 他の味方が受ける攻撃を引き受ける             |
+| `veil`          | 味方への弱体効果付与を無効化                 |
+
+タグは NFKC、前後空白除去、小文字化、空白・アンダースコアのハイフン化を行い、重複を除去します。`回復`→`heal`、`ディスペル`→`dispel`、`弱体無効`→`veil` も正規化します。正規化後に管理語彙へ存在しないタグや、種類と一致しない `details` はAPIで拒否されます。
+
+入力例:
+
+```json
+{
+  "kind": "character",
+  "name": "サンプル支援役",
+  "element": "wind",
+  "rarity": "SSR",
+  "tags": ["heal", "dispel"],
+  "details": {
+    "roles": ["healer", "support"],
+    "weaponProficiencies": ["staff"],
+    "races": ["human"]
+  }
+}
+```
+
 `data/private`、DB dump、スクリーンショット、`.env`などはGit管理を禁止しています。バックアップもリポジトリ外へ保存してください。
 
 ## Quality checks
