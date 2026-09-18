@@ -1,3 +1,6 @@
+import { createHmac, randomBytes } from "node:crypto";
+import { bodyLimit } from "hono/body-limit";
+import { maxImportBytes, type ImportPreview } from "../domain/csv-import.js";
 import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
 import { secureHeaders } from "hono/secure-headers";
@@ -33,6 +36,17 @@ function validationHook(
 
 export function createApp(repository: CatalogRepository) {
   const app = new Hono();
+  const importSecret = randomBytes(32);
+  const importToken = (csv: string, preview: ImportPreview) =>
+    createHmac("sha256", importSecret).update(JSON.stringify({ csv, preview })).digest("hex");
+  const csvRequestSchema = z.strictObject({ csv: z.string().max(maxImportBytes) });
+  app.use(
+    "/api/import/*",
+    bodyLimit({
+      maxSize: maxImportBytes * 2,
+      onError: (context) => context.json({ error: "CSVは1MiB以内にしてください。" }, 413),
+    }),
+  );
 
   app.use("*", secureHeaders());
   app.use("/api/*", async (context, next) => {
@@ -42,6 +56,56 @@ export function createApp(repository: CatalogRepository) {
     }
     await next();
   });
+
+  app.post(
+    "/api/import/preview",
+    zValidator("json", csvRequestSchema, validationHook),
+    async (context) => {
+      const { csv } = context.req.valid("json");
+      const preview = await repository.previewImport(csv);
+      return context.json({
+        preview,
+        token: preview.errors.length ? null : importToken(csv, preview),
+      });
+    },
+  );
+  app.post(
+    "/api/import/apply",
+    zValidator(
+      "json",
+      csvRequestSchema.extend({ confirm: z.literal(true), token: z.string().max(128) }),
+      validationHook,
+    ),
+    async (context) => {
+      const { csv, token } = context.req.valid("json");
+      try {
+        const result = await repository.applyImport(
+          csv,
+          (preview) => token === importToken(csv, preview),
+        );
+        if (!result.applied)
+          return context.json(
+            {
+              error: result.conflict
+                ? "CSVまたは登録予定が変わりました。プレビューを再実行してください。"
+                : "CSVに不正な行があります。",
+              preview: result.preview,
+            },
+            result.conflict ? 409 : 400,
+          );
+        return context.json(result);
+      } catch (caught) {
+        const error = caught as { code?: string; cause?: { code?: string } };
+        if ((error.code ?? error.cause?.code) === "40001")
+          return context.json(
+            { error: "保存中にデータが変更されました。プレビューを再実行してください。" },
+            409,
+          );
+        // Do not log CSV-derived values in SQL error messages.
+        return context.json({ error: "一括保存に失敗しました。全行の変更を取り消しました。" }, 500);
+      }
+    },
+  );
 
   app.get("/api/health", (context) => context.json({ status: "ok" }));
 

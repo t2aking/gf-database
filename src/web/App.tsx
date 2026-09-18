@@ -15,6 +15,8 @@ import { CatalogEditor } from "./CatalogEditor.js";
 
 import { sourceStatusLabels, sourceReviewDays, type SourceStatus } from "../domain/sources.js";
 
+import { CsvImport } from "./CsvImport.js";
+
 const panelClass = "mt-4 rounded-2xl border border-line bg-surface/85 p-[1.4rem] shadow-panel";
 const headingClass = "mb-4 text-[1.1rem] font-bold";
 
@@ -142,6 +144,13 @@ export function App() {
           {error}
         </div>
       )}
+
+      <CsvImport
+        onChanged={async () => {
+          setCandidates([]);
+          await loadItems();
+        }}
+      />
 
       <section className={panelClass}>
         <h2 className={headingClass}>カタログへ追加</h2>

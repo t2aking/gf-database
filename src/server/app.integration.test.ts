@@ -5,6 +5,7 @@ import postgres from "postgres";
 import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 import { CatalogRepository } from "../database/repository.js";
 import * as schema from "../database/schema.js";
+import { importTemplate } from "../domain/csv-import.js";
 import { createApp } from "./app.js";
 
 // Explicit opt-in; every run uses its own schema and only removes that schema.
@@ -253,5 +254,145 @@ describe.skipIf(!testUrl)("catalog API with PostgreSQL", () => {
       lastConfirmedAt: expect.any(Date),
     });
     expect((await app.request("/api/catalog?sourceStatus=invalid")).status).toBe(400);
+  });
+  it("previews and atomically upserts all three kinds only with a reviewed CSV", async () => {
+    const csv = importTemplate();
+    const before = await repository.search();
+    const response = await send("/api/import/preview", "POST", { csv });
+    expect(response.status).toBe(200);
+    const preview = (await response.json()) as {
+      preview: { newCount: number; updateCount: number };
+      token: string;
+    };
+    expect(preview.preview).toMatchObject({ newCount: 3, updateCount: 0, errorCount: 0 });
+    expect(await repository.search()).toHaveLength(before.length);
+    expect(
+      (await send("/api/import/apply", "POST", { csv, token: preview.token, confirm: false }))
+        .status,
+    ).toBe(400);
+    expect(
+      (
+        await send("/api/import/apply", "POST", {
+          csv: csv.replace("架空の支援役", "架空の未確認役"),
+          token: preview.token,
+          confirm: true,
+        })
+      ).status,
+    ).toBe(409);
+    expect(
+      (await send("/api/import/apply", "POST", { csv, token: preview.token, confirm: true }))
+        .status,
+    ).toBe(200);
+    const second = (await (
+      await send("/api/import/preview", "POST", { csv })
+    ).json()) as typeof preview;
+    expect(second.preview).toMatchObject({ newCount: 0, updateCount: 3 });
+    expect(
+      (await send("/api/import/apply", "POST", { csv, token: second.token, confirm: true })).status,
+    ).toBe(200);
+    expect(await repository.search()).toHaveLength(before.length + 3);
+    expect((await repository.search({ query: "架空の試験剣" }))[0]?.quantity).toBe(2);
+    const id = (await repository.search({ query: "架空の試験剣" }))[0]!.id;
+    await repository.createSource(id, { kind: "user", observedAt: "2026-01-01T00:00:00Z" });
+    const update =
+      "kind,name,element,rarity,tags,owned,quantity,uncapLevel,awakeningLevel,notes,details\nweapon,架空の試験剣,,,heal,false,,,,,";
+    const p = (await (
+      await send("/api/import/preview", "POST", { csv: update })
+    ).json()) as typeof preview;
+    expect(
+      (await send("/api/import/apply", "POST", { csv: update, token: p.token, confirm: true }))
+        .status,
+    ).toBe(200);
+    expect(await repository.get(id)).toMatchObject({
+      element: null,
+      rarity: null,
+      tags: ["heal"],
+      details: { weaponType: "sword" },
+      inventory: null,
+      sources: [{ kind: "user" }],
+    });
+  });
+  it("validates all rows before writing and rolls back a failure after the first row", async () => {
+    const before = await repository.search();
+    const invalid = importTemplate()
+      .replace('"架空の支援役"', '"架空の新規支援役"')
+      .replace('"2","4"', '"-1","4"');
+    const result = (await (await send("/api/import/preview", "POST", { csv: invalid })).json()) as {
+      preview: { errors: unknown[] };
+    };
+    expect(result.preview.errors).toEqual(
+      expect.arrayContaining([expect.objectContaining({ line: 3, field: "quantity" })]),
+    );
+    expect(
+      (await send("/api/import/apply", "POST", { csv: invalid, token: "invalid", confirm: true }))
+        .status,
+    ).toBe(400);
+    expect(await repository.search()).toHaveLength(before.length);
+    await client.unsafe(
+      `CREATE FUNCTION reject_import_inventory() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.quantity = 2 THEN RAISE EXCEPTION 'test inventory failure'; END IF; RETURN NEW; END $$`,
+    );
+    await client.unsafe(
+      "CREATE TRIGGER reject_import_inventory BEFORE INSERT OR UPDATE ON inventory_entries FOR EACH ROW EXECUTE FUNCTION reject_import_inventory()",
+    );
+    try {
+      const csv = importTemplate().replaceAll("架空の", "架空のロールバック");
+      const p = (await (await send("/api/import/preview", "POST", { csv })).json()) as {
+        token: string;
+      };
+      expect(
+        (await send("/api/import/apply", "POST", { csv, token: p.token, confirm: true })).status,
+      ).toBe(500);
+      expect(await repository.search()).toHaveLength(before.length);
+      expect(await repository.search({ query: "架空のロールバック" })).toHaveLength(0);
+    } finally {
+      await client.unsafe("DROP TRIGGER reject_import_inventory ON inventory_entries");
+      await client.unsafe("DROP FUNCTION reject_import_inventory()");
+    }
+  });
+  it("rejects a concurrent catalog change without restoring old details", async () => {
+    const id = await create("架空の競合試験武器");
+    const csv =
+      "kind,name,element,rarity,tags,owned,quantity,uncapLevel,awakeningLevel,notes,details\nweapon,架空の競合試験武器,,,heal,false,,,,,";
+    const other = postgres(testUrl!, { max: 1, connection: { search_path: namespace } });
+    const lock = Number.parseInt(randomUUID().slice(0, 8), 16) >>> 1;
+    await client.unsafe(
+      `CREATE FUNCTION pause_import() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.name = '架空の競合試験武器' THEN PERFORM pg_advisory_xact_lock(12345, ${lock}); END IF; RETURN NEW; END $$`,
+    );
+    await client.unsafe(
+      "CREATE TRIGGER pause_import BEFORE INSERT ON catalog_entities FOR EACH ROW EXECUTE FUNCTION pause_import()",
+    );
+    await other.unsafe(`SELECT pg_advisory_lock(12345, ${lock})`);
+    let prepared!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      prepared = resolve;
+    });
+    const applying = repository
+      .applyImport(csv, () => {
+        prepared();
+        return true;
+      })
+      .then(
+        (result) => ({ result, error: null }),
+        (error: unknown) => ({ result: null, error }),
+      );
+    try {
+      await ready;
+      await other.unsafe(
+        `UPDATE catalog_entities SET details = '{"weaponType":"axe","skillEffects":["hp"],"maxUncapLevel":10}' WHERE id = $1`,
+        [id],
+      );
+      await other.unsafe(`SELECT pg_advisory_unlock(12345, ${lock})`);
+      expect((await applying).error).toMatchObject({ cause: { code: "40001" } });
+      expect(await repository.get(id)).toMatchObject({
+        tags: ["attack"],
+        details: { weaponType: "axe", maxUncapLevel: 10 },
+      });
+    } finally {
+      await other.unsafe(`SELECT pg_advisory_unlock(12345, ${lock})`);
+      await applying;
+      await client.unsafe("DROP TRIGGER pause_import ON catalog_entities");
+      await client.unsafe("DROP FUNCTION pause_import()");
+      await other.end();
+    }
   });
 });
