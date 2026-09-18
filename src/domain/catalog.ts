@@ -127,26 +127,33 @@ const commonInputShape = {
         : value,
     z.array(z.enum(capabilityTags)).max(30).default([]),
   ),
-  source: sourceSchema.optional(),
 };
 
-export const catalogInputSchema = z.discriminatedUnion("kind", [
-  z.strictObject({
-    ...commonInputShape,
-    kind: z.literal("character"),
-    details: characterDetailsSchema,
-  }),
-  z.strictObject({
-    ...commonInputShape,
-    kind: z.literal("weapon"),
-    details: weaponDetailsSchema,
-  }),
-  z.strictObject({
-    ...commonInputShape,
-    kind: z.literal("summon"),
-    details: summonDetailsSchema,
-  }),
-]);
+function catalogSchema<T extends z.ZodRawShape>(extra: T) {
+  return z.discriminatedUnion("kind", [
+    z.strictObject({
+      ...commonInputShape,
+      ...extra,
+      kind: z.literal("character"),
+      details: characterDetailsSchema,
+    }),
+    z.strictObject({
+      ...commonInputShape,
+      ...extra,
+      kind: z.literal("weapon"),
+      details: weaponDetailsSchema,
+    }),
+    z.strictObject({
+      ...commonInputShape,
+      ...extra,
+      kind: z.literal("summon"),
+      details: summonDetailsSchema,
+    }),
+  ]);
+}
+
+export const catalogInputSchema = catalogSchema({ source: sourceSchema.optional() });
+export const catalogUpdateSchema = catalogSchema({});
 
 export const capabilityTagsSchema = z.preprocess(
   (value) =>
@@ -172,6 +179,7 @@ export type WeaponDetails = z.infer<typeof weaponDetailsSchema>;
 export type SummonDetails = z.infer<typeof summonDetailsSchema>;
 export type CatalogDetails = CharacterDetails | WeaponDetails | SummonDetails;
 export type CatalogInput = z.infer<typeof catalogInputSchema>;
+export type CatalogUpdate = z.infer<typeof catalogUpdateSchema>;
 export type InventoryInput = z.infer<typeof inventoryInputSchema>;
 
 export type Candidate = {
