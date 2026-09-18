@@ -1,38 +1,25 @@
 import { type FormEvent, useCallback, useEffect, useState } from "react";
-import type { CatalogInput } from "../domain/catalog.js";
-import { api, type CatalogItem } from "./api.js";
+import { catalogInputSchema } from "../domain/catalog.js";
+import { api, ApiError, type CatalogItem } from "./api.js";
 
-const kindLabels = { character: "キャラクター", weapon: "武器", summon: "召喚石" } as const;
-const elementLabels = {
-  fire: "火",
-  water: "水",
-  earth: "土",
-  wind: "風",
-  light: "光",
-  dark: "闇",
-  plain: "無",
-} as const;
+import {
+  CatalogFields,
+  buttonClass,
+  fieldClass,
+  kindLabels,
+  elementLabels,
+  catalogFormInput,
+  type FieldErrors,
+} from "./CatalogFields.js";
+import { CatalogEditor } from "./CatalogEditor.js";
 
-const fieldClass =
-  "w-full rounded-[10px] border border-line-strong bg-field px-3 py-[0.72rem] text-text-bright outline-none focus:outline-2 focus:outline-offset-1 focus:outline-[#5ed4a2]";
-const buttonClass =
-  "cursor-pointer rounded-[10px] bg-mint px-4 py-[0.72rem] font-bold text-[#062018] transition-colors hover:bg-mint-hover";
 const panelClass = "mt-4 rounded-2xl border border-line bg-surface/85 p-[1.4rem] shadow-panel";
 const headingClass = "mb-4 text-[1.1rem] font-bold";
 
-function formString(form: FormData, name: string): string {
-  const value = form.get(name);
-  return typeof value === "string" ? value : "";
-}
-
-function formList(form: FormData, name: string): string[] {
-  return formString(form, name)
-    .split(",")
-    .map((value) => value.trim())
-    .filter(Boolean);
-}
-
 export function App() {
+  const [selectedId, setSelectedId] = useState<string>();
+  const [createErrors, setCreateErrors] = useState<FieldErrors>({});
+  const [creating, setCreating] = useState(false);
   const [items, setItems] = useState<CatalogItem[]>([]);
   const [createKind, setCreateKind] = useState<CatalogItem["kind"]>("character");
   const [query, setQuery] = useState("");
@@ -68,38 +55,28 @@ export function App() {
 
   async function createEntity(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
+    setCreateErrors({});
+    setCreating(true);
     try {
       setError(undefined);
-      const common = {
-        name: formString(form, "name"),
-        element: (formString(form, "element") || undefined) as CatalogItem["element"],
-        rarity: formString(form, "rarity") || undefined,
-        tags: formList(form, "tags"),
-      };
-      const details =
-        createKind === "character"
-          ? {
-              roles: formList(form, "roles"),
-              weaponProficiencies: formList(form, "weaponProficiencies"),
-              races: formList(form, "races"),
-            }
-          : createKind === "weapon"
-            ? {
-                weaponType: formString(form, "weaponType"),
-                skillEffects: formList(form, "skillEffects"),
-                maxUncapLevel: Number(formString(form, "maxUncapLevel")),
-              }
-            : {
-                auraEffects: formList(form, "auraEffects"),
-                callEffects: formList(form, "callEffects"),
-                maxUncapLevel: Number(formString(form, "maxUncapLevel")),
-              };
-      await api.createCatalog({ kind: createKind, ...common, details } as CatalogInput);
-      event.currentTarget.reset();
+      const parsed = catalogInputSchema.safeParse(catalogFormInput(form, createKind));
+      if (!parsed.success) {
+        const errors: FieldErrors = {};
+        for (const issue of parsed.error.issues)
+          (errors[issue.path.join(".") || "form"] ??= []).push(issue.message);
+        setCreateErrors(errors);
+        return;
+      }
+      await api.createCatalog(parsed.data);
+      formElement.reset();
       await loadItems();
     } catch (caught) {
+      if (caught instanceof ApiError) setCreateErrors(caught.fieldErrors);
       setError(caught instanceof Error ? caught.message : "登録に失敗しました。");
+    } finally {
+      setCreating(false);
     }
   }
 
@@ -109,6 +86,8 @@ export function App() {
         owned,
         quantity: item.quantity ?? 1,
         uncapLevel: item.uncapLevel ?? 0,
+        awakeningLevel: item.awakeningLevel,
+        notes: item.notes,
       });
       await loadItems();
     } catch (caught) {
@@ -165,111 +144,17 @@ export function App() {
         <form
           className="grid grid-cols-3 gap-[0.7rem] max-[850px]:grid-cols-2 max-[560px]:grid-cols-1"
           onSubmit={createEntity}
+          noValidate
         >
-          <select
-            className={fieldClass}
-            name="kind"
-            aria-label="種類"
-            value={createKind}
-            onChange={(event) => setCreateKind(event.target.value as CatalogItem["kind"])}
-            required
+          <fieldset
+            disabled={creating}
+            className="col-span-full grid grid-cols-3 gap-[0.7rem] max-[850px]:grid-cols-2 max-[560px]:grid-cols-1"
           >
-            {Object.entries(kindLabels).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
-          <input className={fieldClass} name="name" placeholder="名称" required maxLength={120} />
-          <select className={fieldClass} name="element" aria-label="属性" defaultValue="">
-            <option value="">属性なし</option>
-            {Object.entries(elementLabels).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
-          <input
-            className={fieldClass}
-            name="rarity"
-            placeholder="レアリティ（任意）"
-            maxLength={20}
-          />
-          <input
-            className={fieldClass}
-            name="tags"
-            placeholder="役割タグをカンマ区切り（例: heal, dispel）"
-          />
-          {createKind === "character" && (
-            <>
-              <input
-                className={fieldClass}
-                name="roles"
-                placeholder="役割（例: attacker, support）"
-                required
-              />
-              <input
-                className={fieldClass}
-                name="weaponProficiencies"
-                placeholder="得意武器（例: sword, dagger）"
-                required
-              />
-              <input className={fieldClass} name="races" placeholder="種族（例: human）" required />
-            </>
-          )}
-          {createKind === "weapon" && (
-            <>
-              <input
-                className={fieldClass}
-                name="weaponType"
-                placeholder="武器種（例: sword）"
-                required
-              />
-              <input
-                className={fieldClass}
-                name="skillEffects"
-                placeholder="スキル分類（例: attack, hp）"
-                required
-              />
-              <input
-                className={fieldClass}
-                name="maxUncapLevel"
-                type="number"
-                min="0"
-                max="10"
-                placeholder="最大上限解放段階"
-                required
-              />
-            </>
-          )}
-          {createKind === "summon" && (
-            <>
-              <input
-                className={fieldClass}
-                name="auraEffects"
-                placeholder="加護分類（例: element-attack）"
-                required
-              />
-              <input
-                className={fieldClass}
-                name="callEffects"
-                placeholder="召喚効果分類（例: damage-cut）"
-                required
-              />
-              <input
-                className={fieldClass}
-                name="maxUncapLevel"
-                type="number"
-                min="0"
-                max="10"
-                placeholder="最大上限解放段階"
-                required
-              />
-            </>
-          )}
-          <button className={buttonClass} type="submit">
-            追加
-          </button>
+            <CatalogFields kind={createKind} onKindChange={setCreateKind} errors={createErrors} />
+            <button className={buttonClass} type="submit">
+              {creating ? "追加中…" : "追加"}
+            </button>
+          </fieldset>
         </form>
       </section>
 
@@ -326,6 +211,7 @@ export function App() {
                 <input
                   className="size-[1.15rem] accent-[#69e2ad]"
                   type="checkbox"
+                  aria-label={`${item.name}の所持`}
                   checked={Boolean(item.owned)}
                   onChange={(event) => void toggleOwned(item, event.target.checked)}
                 />
@@ -333,6 +219,19 @@ export function App() {
               </label>
               <div className="grid gap-1">
                 <strong>{item.name}</strong>
+                <button
+                  className="text-left text-sm text-mint underline"
+                  type="button"
+                  onClick={() => setSelectedId(item.id)}
+                >
+                  詳細・編集
+                </button>
+                {item.owned && (
+                  <small className="text-muted">
+                    所持数 {item.quantity} · 上限解放 {item.uncapLevel} · 覚醒{" "}
+                    {item.awakeningLevel ?? "未設定"}
+                  </small>
+                )}
                 <small className="text-muted-deep">
                   {kindLabels[item.kind]}
                   {item.element ? ` · ${elementLabels[item.element]}` : ""}
@@ -353,6 +252,18 @@ export function App() {
           ))}
         </div>
       </section>
+
+      {selectedId && (
+        <CatalogEditor
+          key={selectedId}
+          entityId={selectedId}
+          onClose={() => setSelectedId(undefined)}
+          onChanged={async () => {
+            setCandidates([]);
+            await loadItems();
+          }}
+        />
+      )}
 
       <section className={panelClass}>
         <h2 className={headingClass}>所持候補を事前評価</h2>

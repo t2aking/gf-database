@@ -1,5 +1,11 @@
 import { and, eq, ilike, isNotNull, isNull } from "drizzle-orm";
-import type { CatalogInput, Element, EntityKind, InventoryInput } from "../domain/catalog.js";
+import type {
+  CatalogInput,
+  CatalogUpdate,
+  Element,
+  EntityKind,
+  InventoryInput,
+} from "../domain/catalog.js";
 import { rankOwnedCandidates } from "../domain/catalog.js";
 import { normalizeName } from "../domain/normalization.js";
 import type { Database } from "./client.js";
@@ -80,6 +86,50 @@ export class CatalogRepository {
     });
   }
 
+  async get(entityId: string) {
+    const [entity] = await this.db
+      .select()
+      .from(catalogEntities)
+      .where(eq(catalogEntities.id, entityId));
+    if (!entity) return null;
+    const [inventory] = await this.db
+      .select()
+      .from(inventoryEntries)
+      .where(eq(inventoryEntries.entityId, entityId));
+    const sources = await this.db
+      .select()
+      .from(sourceReferences)
+      .where(eq(sourceReferences.entityId, entityId));
+    return { ...entity, inventory: inventory ?? null, sources };
+  }
+
+  async update(entityId: string, input: CatalogUpdate) {
+    const [entity] = await this.db
+      .update(catalogEntities)
+      .set({
+        kind: input.kind,
+        name: input.name,
+        normalizedName: normalizeName(input.name),
+        element: input.element ?? null,
+        rarity: input.rarity ?? null,
+        tags: input.tags,
+        details: input.details,
+        updatedAt: new Date(),
+      })
+      .where(eq(catalogEntities.id, entityId))
+      .returning();
+    return entity ?? null;
+  }
+
+  async delete(entityId: string) {
+    // PostgreSQL cascades inventory and source references atomically.
+    const [entity] = await this.db
+      .delete(catalogEntities)
+      .where(eq(catalogEntities.id, entityId))
+      .returning({ id: catalogEntities.id });
+    return entity ?? null;
+  }
+
   async setInventory(entityId: string, input: InventoryInput) {
     if (!input.owned) {
       await this.db.delete(inventoryEntries).where(eq(inventoryEntries.entityId, entityId));
@@ -92,16 +142,16 @@ export class CatalogRepository {
         entityId,
         quantity: input.quantity,
         uncapLevel: input.uncapLevel,
-        awakeningLevel: input.awakeningLevel,
-        notes: input.notes,
+        awakeningLevel: input.awakeningLevel ?? null,
+        notes: input.notes ?? null,
       })
       .onConflictDoUpdate({
         target: inventoryEntries.entityId,
         set: {
           quantity: input.quantity,
           uncapLevel: input.uncapLevel,
-          awakeningLevel: input.awakeningLevel,
-          notes: input.notes,
+          awakeningLevel: input.awakeningLevel ?? null,
+          notes: input.notes ?? null,
           updatedAt: new Date(),
         },
       })

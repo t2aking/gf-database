@@ -1,4 +1,9 @@
-import type { CatalogDetails, CatalogInput } from "../domain/catalog.js";
+import type {
+  CatalogDetails,
+  CatalogInput,
+  CatalogUpdate,
+  InventoryInput,
+} from "../domain/catalog.js";
 
 export type CatalogItem = {
   id: string;
@@ -12,7 +17,36 @@ export type CatalogItem = {
   quantity: number | null;
   uncapLevel: number | null;
   notes: string | null;
+  awakeningLevel: number | null;
 };
+
+export type CatalogDetail = Pick<
+  CatalogItem,
+  "id" | "kind" | "name" | "element" | "rarity" | "tags" | "details"
+> & {
+  inventory: {
+    quantity: number;
+    uncapLevel: number;
+    awakeningLevel: number | null;
+    notes: string | null;
+  } | null;
+  sources: Array<{
+    id: string;
+    kind: string;
+    url: string | null;
+    note: string | null;
+    observedAt: string;
+  }>;
+};
+
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly fieldErrors: Record<string, string[]> = {},
+  ) {
+    super(message);
+  }
+}
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
@@ -22,8 +56,11 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
     headers,
   });
   if (!response.ok) {
-    const body = (await response.json().catch(() => null)) as { error?: string } | null;
-    throw new Error(body?.error ?? `Request failed (${response.status})`);
+    const body = (await response.json().catch(() => null)) as {
+      error?: string;
+      fieldErrors?: Record<string, string[]>;
+    } | null;
+    throw new ApiError(body?.error ?? `Request failed (${response.status})`, body?.fieldErrors);
   }
   return response.json() as Promise<T>;
 }
@@ -38,7 +75,19 @@ export const api = {
       body: JSON.stringify(input),
     });
   },
-  setInventory(entityId: string, input: { owned: boolean; quantity: number; uncapLevel: number }) {
+  getCatalog(entityId: string) {
+    return request<{ item: CatalogDetail }>(`/api/catalog/${entityId}`);
+  },
+  updateCatalog(entityId: string, input: CatalogUpdate) {
+    return request(`/api/catalog/${entityId}`, { method: "PUT", body: JSON.stringify(input) });
+  },
+  deleteCatalog(entityId: string) {
+    return request(`/api/catalog/${entityId}`, {
+      method: "DELETE",
+      body: JSON.stringify({ confirm: true }),
+    });
+  },
+  setInventory(entityId: string, input: InventoryInput) {
     return request(`/api/inventory/${entityId}`, { method: "PUT", body: JSON.stringify(input) });
   },
   candidates(input: {
