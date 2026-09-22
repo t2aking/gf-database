@@ -23,6 +23,10 @@ describe("MCP detail tool", () => {
         calls.push(options);
         return [];
       },
+      recommendations: async (options: unknown) => {
+        calls.push(options);
+        return { byKind: { character: [], weapon: [], summon: [] }, warnings: [] };
+      },
     };
     const server = createMcpServer(repository as unknown as CatalogRepository);
     type Transport = Parameters<typeof server.connect>[0];
@@ -64,6 +68,24 @@ describe("MCP detail tool", () => {
             requiredTags: ["heal"],
             preferredTags: ["dispel"],
             strictRequiredTags: true,
+          }),
+        );
+      transport.onmessage?.({
+        jsonrpc: "2.0",
+        id: 12,
+        method: "tools/call",
+        params: { name: "recommend_owned_formation", arguments: { battleId: id } },
+      });
+      await expect
+        .poll(() => messages)
+        .toContainEqual(
+          expect.objectContaining({
+            id: 12,
+            result: expect.objectContaining({
+              structuredContent: expect.objectContaining({
+                recommendation: expect.objectContaining({ byKind: expect.any(Object) }),
+              }),
+            }),
           }),
         );
     } finally {

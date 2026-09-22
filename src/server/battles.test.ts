@@ -26,6 +26,9 @@ function fixture() {
     updateBattle: vi.fn().mockImplementation(async (_id, value) => ({ id, ...value })),
     deleteBattle: vi.fn().mockResolvedValue({ id }),
     candidates: vi.fn().mockResolvedValue([]),
+    recommendations: vi
+      .fn()
+      .mockResolvedValue({ byKind: { character: [], weapon: [], summon: [] }, warnings: [] }),
   };
   return { repository, app: createApp(repository as unknown as CatalogRepository) };
 }
@@ -71,6 +74,22 @@ describe("battle API", () => {
         preferredTags: ["dispel"],
       }),
     );
+  });
+
+  it("uses battle conditions for grouped recommendations", async () => {
+    const { app, repository } = fixture();
+    const response = await app.request("/api/recommendations", json("POST", { battleId: id }));
+    expect(response.status).toBe(200);
+    expect(repository.recommendations).toHaveBeenCalledWith(
+      expect.objectContaining({
+        element: "water",
+        requiredTags: ["heal"],
+        preferredTags: ["dispel"],
+      }),
+    );
+    expect(await response.json()).toMatchObject({
+      recommendation: { byKind: { character: [], weapon: [], summon: [] } },
+    });
   });
 
   it("rejects missing battle references and missing CRUD targets", async () => {

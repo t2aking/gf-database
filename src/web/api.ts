@@ -1,5 +1,6 @@
 import type { ImportPreview } from "../domain/csv-import.js";
 import type { BattleInput } from "../domain/battles.js";
+import type { RecommendationResult } from "../domain/recommendations.js";
 import type { SourceInput, SourceStatus } from "../domain/sources.js";
 import type {
   CatalogDetails,
@@ -166,5 +167,16 @@ export const api = {
         CatalogItem & { score: number; matchedTags: string[]; missingTags: string[] }
       >;
     }>("/api/candidates", { method: "POST", body: JSON.stringify(input) });
+  },
+  recommendations(input: {
+    battleId?: string;
+    element?: NonNullable<CatalogItem["element"]>;
+    requiredTags?: string[];
+    preferredTags?: string[];
+  }) {
+    return request<{ recommendation: RecommendationResult }>("/api/recommendations", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
   },
 };

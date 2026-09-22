@@ -12,6 +12,7 @@ import { rankOwnedCandidates } from "../domain/catalog.js";
 import { sourceReviewCutoff, type SourceInput, type SourceStatus } from "../domain/sources.js";
 import { normalizeName, normalizeTags } from "../domain/normalization.js";
 import type { BattleInput } from "../domain/battles.js";
+import { recommendOwned, type RecommendationCriteria } from "../domain/recommendations.js";
 import type { Database } from "./client.js";
 import { battleContents, catalogEntities, inventoryEntries, sourceReferences } from "./schema.js";
 
@@ -407,5 +408,21 @@ export class CatalogRepository {
       })),
       options,
     );
+  }
+
+  async recommendations(criteria: RecommendationCriteria) {
+    const rows = await this.db
+      .select({
+        id: catalogEntities.id,
+        kind: catalogEntities.kind,
+        name: catalogEntities.name,
+        element: catalogEntities.element,
+        tags: catalogEntities.tags,
+        quantity: inventoryEntries.quantity,
+        uncapLevel: inventoryEntries.uncapLevel,
+      })
+      .from(catalogEntities)
+      .innerJoin(inventoryEntries, eq(inventoryEntries.entityId, catalogEntities.id));
+    return recommendOwned(rows, criteria);
   }
 }

@@ -133,8 +133,9 @@ sh scripts/run-mcp.sh
 - `get_entity_details`: カタログ詳細・所持情報・出典・確認日・検証日の取得
 - `get_inventory_summary`: 所持数の集計
 - `find_owned_candidates`: 属性・役割タグによる所持候補の順位付け
+- `recommend_owned_formation`: 所持中のキャラクター・武器・召喚石を種類別に評価し、スコア内訳、一致・不足タグ、適格判定、警告を返す
 
-編成候補のスコアはLLMへ渡す候補を絞るための簡易指標です。ゲーム内ダメージや編成成立を保証するものではありません。
+`POST /api/recommendations` と `recommend_owned_formation` は `battleId` または都度指定の `element`、`requiredTags`、`preferredTags` を受け付けます。`limitPerKind` は種類ごとに1〜20件（既定10件）です。必須タグと属性は各所持品の適格判定に使い、加点タグは順位にだけ使います。順位は適格判定、スコア、名称、IDの順で決定します。情報不足や適格候補不足は `warnings` で返します。これはLLMへ渡す候補を絞るための簡易指標であり、ゲーム内ダメージや編成成立を保証するものではありません。
 
 ## Database
 
