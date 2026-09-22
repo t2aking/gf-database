@@ -1,4 +1,4 @@
-import { type FormEvent, useCallback, useEffect, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { catalogInputSchema } from "../domain/catalog.js";
 import type { RecommendationResult } from "../domain/recommendations.js";
 import { api, ApiError, type Battle, type CatalogItem } from "./api.js";
@@ -40,6 +40,12 @@ export function App() {
   const [battles, setBattles] = useState<Battle[]>([]);
   const [candidateBattleId, setCandidateBattleId] = useState("");
   const [recommendation, setRecommendation] = useState<RecommendationResult>();
+  const recommendationRevision = useRef(0);
+
+  function invalidateRecommendation() {
+    recommendationRevision.current += 1;
+    setRecommendation(undefined);
+  }
 
   const loadItems = useCallback(async () => {
     const params = new URLSearchParams();
@@ -80,6 +86,7 @@ export function App() {
         return;
       }
       await api.createCatalog(parsed.data);
+      invalidateRecommendation();
       formElement.reset();
       await loadItems();
     } catch (caught) {
@@ -99,6 +106,7 @@ export function App() {
         awakeningLevel: item.awakeningLevel,
         notes: item.notes,
       });
+      invalidateRecommendation();
       await loadItems();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "所持情報の更新に失敗しました。");
@@ -106,6 +114,8 @@ export function App() {
   }
 
   async function findCandidates() {
+    const revision = ++recommendationRevision.current;
+    setRecommendation(undefined);
     try {
       const response = await api.recommendations({
         battleId: candidateBattleId || undefined,
@@ -127,7 +137,7 @@ export function App() {
               .map((tag) => tag.trim())
               .filter(Boolean),
       });
-      setRecommendation(response.recommendation);
+      if (recommendationRevision.current === revision) setRecommendation(response.recommendation);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "候補抽出に失敗しました。");
     }
@@ -164,13 +174,14 @@ export function App() {
 
       <CsvImport
         onChanged={async () => {
-          setRecommendation(undefined);
+          invalidateRecommendation();
           await loadItems();
         }}
       />
 
       <BattleManager
         onChanged={(items) => {
+          invalidateRecommendation();
           setBattles(items);
           if (candidateBattleId && !items.some((item) => item.id === candidateBattleId))
             setCandidateBattleId("");
@@ -324,7 +335,7 @@ export function App() {
           entityId={selectedId}
           onClose={() => setSelectedId(undefined)}
           onChanged={async () => {
-            setRecommendation(undefined);
+            invalidateRecommendation();
             await loadItems();
           }}
         />
@@ -339,7 +350,10 @@ export function App() {
           <select
             className={fieldClass}
             value={candidateBattleId}
-            onChange={(event) => setCandidateBattleId(event.target.value)}
+            onChange={(event) => {
+              invalidateRecommendation();
+              setCandidateBattleId(event.target.value);
+            }}
             aria-label="バトル条件を選択"
           >
             <option value="">バトル条件を指定しない</option>
@@ -352,14 +366,20 @@ export function App() {
           <input
             className={fieldClass}
             value={candidateTags}
-            onChange={(event) => setCandidateTags(event.target.value)}
+            onChange={(event) => {
+              invalidateRecommendation();
+              setCandidateTags(event.target.value);
+            }}
             placeholder="必須タグ: heal, dispel"
             disabled={Boolean(candidateBattleId)}
           />
           <input
             className={fieldClass}
             value={preferredCandidateTags}
-            onChange={(event) => setPreferredCandidateTags(event.target.value)}
+            onChange={(event) => {
+              invalidateRecommendation();
+              setPreferredCandidateTags(event.target.value);
+            }}
             placeholder="加点タグ: buff, attack"
             disabled={Boolean(candidateBattleId)}
             aria-label="加点タグ"
@@ -367,7 +387,10 @@ export function App() {
           <select
             className={fieldClass}
             value={candidateElement}
-            onChange={(event) => setCandidateElement(event.target.value)}
+            onChange={(event) => {
+              invalidateRecommendation();
+              setCandidateElement(event.target.value);
+            }}
             disabled={Boolean(candidateBattleId)}
             aria-label="推薦属性"
           >
