@@ -10,7 +10,7 @@ export function createMcpServer(repository: CatalogRepository) {
     { name: "gf-database", version: "0.1.0" },
     {
       instructions:
-        "Use the catalog and inventory tools to propose candidates. Treat scores as a shortlist, explain trade-offs, and do not invent missing mechanics.",
+        "Use recommend_owned_formation for a bounded, evidence-based shortlist before proposing a formation. Explain score components, unmet conditions, and warnings. Do not invent missing mechanics or claim optimality.",
     },
   );
 
@@ -93,6 +93,35 @@ export function createMcpServer(repository: CatalogRepository) {
       const payload = { candidates, ...(battle ? { battle } : {}) };
       return {
         content: [{ type: "text", text: JSON.stringify(payload, null, 2) }],
+        structuredContent: payload,
+      };
+    },
+  );
+
+  server.registerTool(
+    "recommend_owned_formation",
+    {
+      description:
+        "Return bounded character, weapon, and summon shortlists with score breakdowns, unmet requirements, and warnings. Explain limitations; do not claim optimality.",
+      inputSchema: z.object({
+        battleId: z.uuid().optional(),
+        element: z.enum(elements).optional(),
+        requiredTags: capabilityTagsSchema,
+        preferredTags: capabilityTagsSchema,
+        limitPerKind: z.number().int().min(1).max(20).default(10),
+      }),
+    },
+    async ({ battleId, limitPerKind, ...input }) => {
+      const battle = battleId ? await repository.getBattle(battleId) : null;
+      if (battleId && !battle)
+        return { isError: true, content: [{ type: "text" as const, text: "Battle not found." }] };
+      const recommendation = await repository.recommendations({
+        ...(battle ? resolveCandidateCriteria(battle) : input),
+        limitPerKind,
+      });
+      const payload = { recommendation, ...(battle ? { battle } : {}) };
+      return {
+        content: [{ type: "text" as const, text: JSON.stringify(payload, null, 2) }],
         structuredContent: payload,
       };
     },

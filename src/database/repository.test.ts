@@ -22,4 +22,21 @@ describe("battle candidate query", () => {
     expect(queries[0]).toMatch(/"catalog_entities"\."tags"\s*@>/);
     expect(queries[0]).toMatch(/limit\s+\$\d+/i);
   });
+
+  it("scores the complete owned inventory before limiting recommendation output", async () => {
+    const queries: string[] = [];
+    const db = drizzle(
+      async (sql) => {
+        queries.push(sql);
+        return { rows: [] };
+      },
+      { schema },
+    );
+    await new CatalogRepository(db as unknown as Database).recommendations({
+      requiredTags: ["heal"],
+    });
+    expect(queries).toHaveLength(1);
+    expect(queries[0]).toMatch(/inner join.*inventory_entries/i);
+    expect(queries[0]).not.toMatch(/\blimit\b/i);
+  });
 });

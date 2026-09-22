@@ -291,6 +291,31 @@ export function createApp(repository: CatalogRepository) {
     },
   );
 
+  app.post(
+    "/api/recommendations",
+    zValidator(
+      "json",
+      z.strictObject({
+        battleId: idSchema.optional(),
+        element: z.enum(elements).optional(),
+        requiredTags: capabilityTagsSchema,
+        preferredTags: capabilityTagsSchema,
+        limitPerKind: z.number().int().min(1).max(20).optional(),
+      }),
+      validationHook,
+    ),
+    async (context) => {
+      const { battleId, limitPerKind, ...input } = context.req.valid("json");
+      const battle = battleId ? await repository.getBattle(battleId) : null;
+      if (battleId && !battle) return context.json({ error: "Battle not found." }, 404);
+      const recommendation = await repository.recommendations({
+        ...(battle ? resolveCandidateCriteria(battle) : input),
+        limitPerKind,
+      });
+      return context.json({ recommendation, ...(battle ? { battle } : {}) });
+    },
+  );
+
   app.onError((error, context) => {
     const cause = error.cause as { code?: string } | undefined;
     const code = (error as Error & { code?: string }).code ?? cause?.code;

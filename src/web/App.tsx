@@ -1,5 +1,6 @@
 import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { catalogInputSchema } from "../domain/catalog.js";
+import type { RecommendationResult } from "../domain/recommendations.js";
 import { api, ApiError, type Battle, type CatalogItem } from "./api.js";
 import { BattleManager } from "./BattleManager.js";
 
@@ -34,11 +35,11 @@ export function App() {
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [candidateTags, setCandidateTags] = useState("");
+  const [preferredCandidateTags, setPreferredCandidateTags] = useState("");
+  const [candidateElement, setCandidateElement] = useState("");
   const [battles, setBattles] = useState<Battle[]>([]);
   const [candidateBattleId, setCandidateBattleId] = useState("");
-  const [candidates, setCandidates] = useState<
-    Array<CatalogItem & { score: number; matchedTags: string[] }>
-  >([]);
+  const [recommendation, setRecommendation] = useState<RecommendationResult>();
 
   const loadItems = useCallback(async () => {
     const params = new URLSearchParams();
@@ -106,17 +107,27 @@ export function App() {
 
   async function findCandidates() {
     try {
-      const response = await api.candidates({
-        kind: kind ? (kind as CatalogItem["kind"]) : undefined,
+      const response = await api.recommendations({
         battleId: candidateBattleId || undefined,
+        element: candidateBattleId
+          ? undefined
+          : candidateElement
+            ? (candidateElement as NonNullable<CatalogItem["element"]>)
+            : undefined,
         requiredTags: candidateBattleId
           ? []
           : candidateTags
               .split(",")
               .map((tag) => tag.trim())
               .filter(Boolean),
+        preferredTags: candidateBattleId
+          ? []
+          : preferredCandidateTags
+              .split(",")
+              .map((tag) => tag.trim())
+              .filter(Boolean),
       });
-      setCandidates(response.candidates);
+      setRecommendation(response.recommendation);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "候補抽出に失敗しました。");
     }
@@ -153,7 +164,7 @@ export function App() {
 
       <CsvImport
         onChanged={async () => {
-          setCandidates([]);
+          setRecommendation(undefined);
           await loadItems();
         }}
       />
@@ -313,16 +324,16 @@ export function App() {
           entityId={selectedId}
           onClose={() => setSelectedId(undefined)}
           onChanged={async () => {
-            setCandidates([]);
+            setRecommendation(undefined);
             await loadItems();
           }}
         />
       )}
 
       <section className={panelClass}>
-        <h2 className={headingClass}>所持候補を事前評価</h2>
+        <h2 className={headingClass}>所持データから編成候補を評価</h2>
         <p className="text-[#92afa4]">
-          必要な役割をタグで指定すると、MCPがLLMへ渡すのと同じ候補順位を確認できます。
+          条件ごとにキャラクター・武器・召喚石の候補と根拠を確認できます。順位は簡易評価で、最適編成やダメージ量を保証するものではありません。
         </p>
         <div className="grid grid-cols-[1fr_auto] gap-[0.7rem] max-[560px]:grid-cols-1">
           <select
@@ -342,24 +353,74 @@ export function App() {
             className={fieldClass}
             value={candidateTags}
             onChange={(event) => setCandidateTags(event.target.value)}
-            placeholder="heal, dispel, damage-cut"
+            placeholder="必須タグ: heal, dispel"
             disabled={Boolean(candidateBattleId)}
           />
+          <input
+            className={fieldClass}
+            value={preferredCandidateTags}
+            onChange={(event) => setPreferredCandidateTags(event.target.value)}
+            placeholder="加点タグ: buff, attack"
+            disabled={Boolean(candidateBattleId)}
+            aria-label="加点タグ"
+          />
+          <select
+            className={fieldClass}
+            value={candidateElement}
+            onChange={(event) => setCandidateElement(event.target.value)}
+            disabled={Boolean(candidateBattleId)}
+            aria-label="推薦属性"
+          >
+            <option value="">属性指定なし</option>
+            {Object.entries(elementLabels).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
           <button className={buttonClass} type="button" onClick={() => void findCandidates()}>
             候補を表示
           </button>
         </div>
-        <ol className="list-decimal pl-6">
-          {candidates.map((candidate) => (
-            <li
-              className="flex justify-between border-b border-[#1d3b31] p-[0.55rem]"
-              key={candidate.id}
-            >
-              <span>{candidate.name}</span>
-              <span className="tabular-nums text-mint-soft">score {candidate.score}</span>
-            </li>
+        {recommendation?.warnings.length ? (
+          <ul className="mt-4 list-disc pl-6 text-[#eadb8e]" aria-label="推薦の注意事項">
+            {recommendation.warnings.map((warning) => (
+              <li key={warning}>{warning}</li>
+            ))}
+          </ul>
+        ) : null}
+        {recommendation &&
+          (["character", "weapon", "summon"] as const).map((candidateKind) => (
+            <section key={candidateKind} className="mt-5">
+              <h3 className="font-bold">{kindLabels[candidateKind]}</h3>
+              {recommendation.byKind[candidateKind].length === 0 ? (
+                <p className="text-muted">候補なし</p>
+              ) : null}
+              <ol className="list-decimal pl-6">
+                {recommendation.byKind[candidateKind].map((candidate) => (
+                  <li className="border-b border-[#1d3b31] p-[0.55rem]" key={candidate.id}>
+                    <div className="flex justify-between gap-3">
+                      <span>
+                        {candidate.name} ·{" "}
+                        {candidate.eligible ? "必須条件を満たす" : "必須条件が不足"}
+                      </span>
+                      <span className="tabular-nums text-mint-soft">score {candidate.score}</span>
+                    </div>
+                    <p className="m-0 text-sm text-muted">
+                      内訳: 属性 {candidate.scoreBreakdown.element}, 必須タグ{" "}
+                      {candidate.scoreBreakdown.requiredTags}, 加点タグ{" "}
+                      {candidate.scoreBreakdown.preferredTags}, 上限解放{" "}
+                      {candidate.scoreBreakdown.uncap}
+                    </p>
+                    <p className="m-0 text-sm text-muted">
+                      一致: {candidate.matchedTags.join(", ") || "なし"} · 不足:{" "}
+                      {candidate.missingConditions.join(", ") || "なし"}
+                    </p>
+                  </li>
+                ))}
+              </ol>
+            </section>
           ))}
-        </ol>
       </section>
     </main>
   );
