@@ -15,6 +15,13 @@
       "when": 1789479982711,
       "tag": "0001_structured_catalog_details",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1790038731993,
+      "tag": "0002_perpetual_hedge_knight",
+      "breakpoints": true
     }
   ]
 }

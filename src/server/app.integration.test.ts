@@ -60,6 +60,60 @@ describe.skipIf(!testUrl)("catalog API with PostgreSQL", () => {
       await client.end();
     }
   });
+  it("persists battle requirements through create, update and delete", async () => {
+    const input = {
+      name: "架空の周回バトル",
+      enemyElement: "fire",
+      recommendedElement: "water",
+      purpose: "full-auto",
+      requiredTags: ["heal"],
+      preferredTags: ["dispel"],
+      notes: "架空の条件",
+    };
+    const created = await send("/api/battles", "POST", input);
+    expect(created.status).toBe(201);
+    const { item } = (await created.json()) as { item: { id: string } };
+    expect(await repository.getBattle(item.id)).toMatchObject(input);
+    expect((await repository.listBattles()).map((battle) => battle.id)).toContain(item.id);
+    const updated = { ...input, purpose: "long", preferredTags: ["damage-cut"] };
+    expect((await send(`/api/battles/${item.id}`, "PUT", updated)).status).toBe(200);
+    expect(await repository.getBattle(item.id)).toMatchObject(updated);
+    expect((await send(`/api/battles/${item.id}`, "DELETE", { confirm: true })).status).toBe(200);
+    expect(await repository.getBattle(item.id)).toBeNull();
+  });
+  it("finds a required-tag match after the first 200 owned entries", async () => {
+    try {
+      await client.unsafe(`
+      WITH inserted AS (
+        INSERT INTO catalog_entities (kind, name, normalized_name, element, rarity, tags, details)
+        SELECT 'weapon', 'a-review-' || lpad(n::text, 4, '0'),
+          'a-review-' || lpad(n::text, 4, '0'), 'water', 'SSR', ARRAY[]::text[],
+          '{"weaponType":"sword","skillEffects":["attack"],"maxUncapLevel":5}'::jsonb
+        FROM generate_series(1, 200) AS n
+        RETURNING id
+      )
+      INSERT INTO inventory_entries (entity_id) SELECT id FROM inserted
+    `);
+      const matchId = await create("z-review-healer");
+      await client.unsafe(
+        "UPDATE catalog_entities SET tags = ARRAY['heal']::text[] WHERE id = $1",
+        [matchId],
+      );
+      await send(`/api/inventory/${matchId}`, "PUT", { owned: true });
+
+      const candidates = await repository.candidates({
+        kind: "weapon",
+        requiredTags: ["heal"],
+        strictRequiredTags: true,
+        limit: 200,
+      });
+      expect(candidates.map((candidate) => candidate.id)).toContain(matchId);
+    } finally {
+      await client.unsafe(
+        "DELETE FROM catalog_entities WHERE name LIKE 'a-review-%' OR name = 'z-review-healer'",
+      );
+    }
+  });
   it("updates normalized search fields while retaining inventory, metadata and sources", async () => {
     const id = await create();
     await client.unsafe("UPDATE catalog_entities SET metadata = '{\"test\":true}' WHERE id = $1", [

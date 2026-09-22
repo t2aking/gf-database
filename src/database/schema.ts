@@ -12,6 +12,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 import type { CatalogDetails } from "../domain/catalog.js";
+import type { BattlePurpose } from "../domain/battles.js";
 
 export const entityKind = pgEnum("entity_kind", ["character", "weapon", "summon"]);
 export const element = pgEnum("element", [
@@ -91,8 +92,14 @@ export const sourceReferences = pgTable(
 export const battleContents = pgTable("battle_contents", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: text("name").notNull().unique(),
-  element: element("element"),
+  enemyElement: element("enemy_element"),
+  recommendedElement: element("recommended_element"),
+  purpose: text("purpose").$type<BattlePurpose>().notNull().default("other"),
   requiredTags: text("required_tags")
+    .array()
+    .notNull()
+    .default(sql`ARRAY[]::text[]`),
+  preferredTags: text("preferred_tags")
     .array()
     .notNull()
     .default(sql`ARRAY[]::text[]`),

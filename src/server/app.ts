@@ -16,6 +16,7 @@ import {
 } from "../domain/catalog.js";
 
 import { sourceInputSchema, sourceStatuses } from "../domain/sources.js";
+import { battleInputSchema, resolveCandidateCriteria } from "../domain/battles.js";
 
 const idSchema = z.uuid();
 const allowedOrigins = new Set(["http://127.0.0.1:5173", "http://localhost:5173"]);
@@ -108,6 +109,39 @@ export function createApp(repository: CatalogRepository) {
   );
 
   app.get("/api/health", (context) => context.json({ status: "ok" }));
+
+  app.get("/api/battles", async (context) =>
+    context.json({ items: await repository.listBattles() }),
+  );
+  app.post("/api/battles", zValidator("json", battleInputSchema, validationHook), async (context) =>
+    context.json({ item: await repository.createBattle(context.req.valid("json")) }, 201),
+  );
+  app.get("/api/battles/:battleId", async (context) => {
+    const id = idSchema.safeParse(context.req.param("battleId"));
+    if (!id.success) return context.json({ error: "Invalid battle id." }, 400);
+    const item = await repository.getBattle(id.data);
+    return item ? context.json({ item }) : context.json({ error: "Battle not found." }, 404);
+  });
+  app.put(
+    "/api/battles/:battleId",
+    zValidator("json", battleInputSchema, validationHook),
+    async (context) => {
+      const id = idSchema.safeParse(context.req.param("battleId"));
+      if (!id.success) return context.json({ error: "Invalid battle id." }, 400);
+      const item = await repository.updateBattle(id.data, context.req.valid("json"));
+      return item ? context.json({ item }) : context.json({ error: "Battle not found." }, 404);
+    },
+  );
+  app.delete(
+    "/api/battles/:battleId",
+    zValidator("json", z.strictObject({ confirm: z.literal(true) }), validationHook),
+    async (context) => {
+      const id = idSchema.safeParse(context.req.param("battleId"));
+      if (!id.success) return context.json({ error: "Invalid battle id." }, 400);
+      const item = await repository.deleteBattle(id.data);
+      return item ? context.json({ item }) : context.json({ error: "Battle not found." }, 404);
+    },
+  );
 
   app.get("/api/catalog", async (context) => {
     const kind = z.enum(entityKinds).safeParse(context.req.query("kind"));
@@ -234,14 +268,25 @@ export function createApp(repository: CatalogRepository) {
     "/api/candidates",
     zValidator(
       "json",
-      z.object({
+      z.strictObject({
         kind: z.enum(entityKinds).optional(),
         element: z.enum(elements).optional(),
         requiredTags: capabilityTagsSchema,
+        preferredTags: capabilityTagsSchema,
+        battleId: idSchema.optional(),
       }),
+      validationHook,
     ),
     async (context) => {
-      const candidates = await repository.candidates(context.req.valid("json"));
+      const { battleId, ...input } = context.req.valid("json");
+      const battle = battleId ? await repository.getBattle(battleId) : null;
+      if (battleId && !battle) return context.json({ error: "Battle not found." }, 404);
+      const criteria = battle ? resolveCandidateCriteria(battle) : input;
+      const candidates = await repository.candidates({
+        ...criteria,
+        kind: input.kind,
+        strictRequiredTags: Boolean(battle),
+      });
       return context.json({ candidates: candidates.slice(0, 50) });
     },
   );

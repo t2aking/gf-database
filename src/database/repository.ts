@@ -1,4 +1,4 @@
-import { and, eq, ilike, isNotNull, isNull, sql } from "drizzle-orm";
+import { and, arrayContains, eq, ilike, isNotNull, isNull, sql } from "drizzle-orm";
 import type {
   CatalogInput,
   CatalogUpdate,
@@ -10,9 +10,10 @@ import { catalogUpdateSchema } from "../domain/catalog.js";
 import { parseImportCsv, type ImportPreview } from "../domain/csv-import.js";
 import { rankOwnedCandidates } from "../domain/catalog.js";
 import { sourceReviewCutoff, type SourceInput, type SourceStatus } from "../domain/sources.js";
-import { normalizeName } from "../domain/normalization.js";
+import { normalizeName, normalizeTags } from "../domain/normalization.js";
+import type { BattleInput } from "../domain/battles.js";
 import type { Database } from "./client.js";
-import { catalogEntities, inventoryEntries, sourceReferences } from "./schema.js";
+import { battleContents, catalogEntities, inventoryEntries, sourceReferences } from "./schema.js";
 
 export type CatalogSearch = {
   query?: string;
@@ -20,11 +21,44 @@ export type CatalogSearch = {
   element?: Element;
   owned?: boolean;
   sourceStatus?: SourceStatus;
+  requiredTags?: string[];
   limit?: number;
 };
 
 export class CatalogRepository {
   constructor(private readonly db: Database) {}
+
+  listBattles() {
+    return this.db.select().from(battleContents).orderBy(battleContents.name);
+  }
+
+  async getBattle(id: string) {
+    const [battle] = await this.db.select().from(battleContents).where(eq(battleContents.id, id));
+    return battle ?? null;
+  }
+
+  async createBattle(input: BattleInput) {
+    const [battle] = await this.db.insert(battleContents).values(input).returning();
+    if (!battle) throw new Error("Failed to create battle condition.");
+    return battle;
+  }
+
+  async updateBattle(id: string, input: BattleInput) {
+    const [battle] = await this.db
+      .update(battleContents)
+      .set({ ...input, updatedAt: new Date() })
+      .where(eq(battleContents.id, id))
+      .returning();
+    return battle ?? null;
+  }
+
+  async deleteBattle(id: string) {
+    const [battle] = await this.db
+      .delete(battleContents)
+      .where(eq(battleContents.id, id))
+      .returning({ id: battleContents.id });
+    return battle ?? null;
+  }
 
   async search(options: CatalogSearch = {}) {
     const sourceCount = sql<number>`(select count(*)::int from ${sourceReferences} where ${sourceReferences.entityId} = ${catalogEntities.id})`;
@@ -39,6 +73,8 @@ export class CatalogRepository {
       conditions.push(ilike(catalogEntities.normalizedName, `%${normalizeName(options.query)}%`));
     if (options.kind) conditions.push(eq(catalogEntities.kind, options.kind));
     if (options.element) conditions.push(eq(catalogEntities.element, options.element));
+    if (options.requiredTags?.length)
+      conditions.push(arrayContains(catalogEntities.tags, normalizeTags(options.requiredTags)));
     if (options.owned === true) conditions.push(isNotNull(inventoryEntries.id));
     if (options.owned === false) conditions.push(isNull(inventoryEntries.id));
 
@@ -348,12 +384,15 @@ export class CatalogRepository {
     kind?: EntityKind;
     element?: Element;
     requiredTags?: string[];
+    preferredTags?: string[];
+    strictRequiredTags?: boolean;
     limit?: number;
   }) {
     const rows = await this.search({
       kind: options.kind,
       element: undefined,
       owned: true,
+      requiredTags: options.strictRequiredTags ? options.requiredTags : undefined,
       limit: options.limit ?? 200,
     });
     return rankOwnedCandidates(

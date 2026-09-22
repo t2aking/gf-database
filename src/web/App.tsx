@@ -1,6 +1,7 @@
 import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { catalogInputSchema } from "../domain/catalog.js";
-import { api, ApiError, type CatalogItem } from "./api.js";
+import { api, ApiError, type Battle, type CatalogItem } from "./api.js";
+import { BattleManager } from "./BattleManager.js";
 
 import {
   CatalogFields,
@@ -33,6 +34,8 @@ export function App() {
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [candidateTags, setCandidateTags] = useState("");
+  const [battles, setBattles] = useState<Battle[]>([]);
+  const [candidateBattleId, setCandidateBattleId] = useState("");
   const [candidates, setCandidates] = useState<
     Array<CatalogItem & { score: number; matchedTags: string[] }>
   >([]);
@@ -105,10 +108,13 @@ export function App() {
     try {
       const response = await api.candidates({
         kind: kind ? (kind as CatalogItem["kind"]) : undefined,
-        requiredTags: candidateTags
-          .split(",")
-          .map((tag) => tag.trim())
-          .filter(Boolean),
+        battleId: candidateBattleId || undefined,
+        requiredTags: candidateBattleId
+          ? []
+          : candidateTags
+              .split(",")
+              .map((tag) => tag.trim())
+              .filter(Boolean),
       });
       setCandidates(response.candidates);
     } catch (caught) {
@@ -149,6 +155,14 @@ export function App() {
         onChanged={async () => {
           setCandidates([]);
           await loadItems();
+        }}
+      />
+
+      <BattleManager
+        onChanged={(items) => {
+          setBattles(items);
+          if (candidateBattleId && !items.some((item) => item.id === candidateBattleId))
+            setCandidateBattleId("");
         }}
       />
 
@@ -311,11 +325,25 @@ export function App() {
           必要な役割をタグで指定すると、MCPがLLMへ渡すのと同じ候補順位を確認できます。
         </p>
         <div className="grid grid-cols-[1fr_auto] gap-[0.7rem] max-[560px]:grid-cols-1">
+          <select
+            className={fieldClass}
+            value={candidateBattleId}
+            onChange={(event) => setCandidateBattleId(event.target.value)}
+            aria-label="バトル条件を選択"
+          >
+            <option value="">バトル条件を指定しない</option>
+            {battles.map((battle) => (
+              <option key={battle.id} value={battle.id}>
+                {battle.name}
+              </option>
+            ))}
+          </select>
           <input
             className={fieldClass}
             value={candidateTags}
             onChange={(event) => setCandidateTags(event.target.value)}
             placeholder="heal, dispel, damage-cut"
+            disabled={Boolean(candidateBattleId)}
           />
           <button className={buttonClass} type="button" onClick={() => void findCandidates()}>
             候補を表示

@@ -194,17 +194,31 @@ export type RankedCandidate = Candidate & {
 
 export function rankOwnedCandidates(
   candidates: Candidate[],
-  options: { element?: Element; requiredTags?: string[] },
+  options: {
+    element?: Element;
+    requiredTags?: string[];
+    preferredTags?: string[];
+    strictRequiredTags?: boolean;
+  },
 ): RankedCandidate[] {
   const requiredTags = normalizeTags(options.requiredTags ?? []);
+  const preferredTags = normalizeTags(options.preferredTags ?? []);
 
   return candidates
+    .filter(
+      (candidate) =>
+        !options.strictRequiredTags || requiredTags.every((tag) => candidate.tags.includes(tag)),
+    )
     .map((candidate) => {
       const matchedTags = requiredTags.filter((tag) => candidate.tags.includes(tag));
       const missingTags = requiredTags.filter((tag) => !candidate.tags.includes(tag));
       const elementScore = !options.element || candidate.element === options.element ? 5 : -3;
       const score =
-        elementScore + matchedTags.length * 10 - missingTags.length * 4 + candidate.uncapLevel;
+        elementScore +
+        matchedTags.length * 10 -
+        missingTags.length * 4 +
+        preferredTags.filter((tag) => candidate.tags.includes(tag)).length * 5 +
+        candidate.uncapLevel;
       return { ...candidate, score, matchedTags, missingTags };
     })
     .sort((left, right) => right.score - left.score || left.name.localeCompare(right.name, "ja"));

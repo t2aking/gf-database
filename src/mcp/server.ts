@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { CatalogRepository } from "../database/repository.js";
 import { capabilityTagsSchema, elements, entityKinds } from "../domain/catalog.js";
 import { sourceStatuses } from "../domain/sources.js";
+import { resolveCandidateCriteria } from "../domain/battles.js";
 
 export function createMcpServer(repository: CatalogRepository) {
   const server = new McpServer(
@@ -10,6 +11,19 @@ export function createMcpServer(repository: CatalogRepository) {
     {
       instructions:
         "Use the catalog and inventory tools to propose candidates. Treat scores as a shortlist, explain trade-offs, and do not invent missing mechanics.",
+    },
+  );
+
+  server.registerTool(
+    "list_battle_conditions",
+    { description: "List locally defined battle conditions for candidate recommendations." },
+    async () => {
+      const items = await repository.listBattles();
+      const payload = { items };
+      return {
+        content: [{ type: "text", text: JSON.stringify(payload, null, 2) }],
+        structuredContent: payload,
+      };
     },
   );
 
@@ -60,12 +74,23 @@ export function createMcpServer(repository: CatalogRepository) {
         kind: z.enum(entityKinds).optional(),
         element: z.enum(elements).optional(),
         requiredTags: capabilityTagsSchema,
+        preferredTags: capabilityTagsSchema,
+        battleId: z.uuid().optional(),
         limit: z.number().int().min(1).max(50).default(20),
       }),
     },
-    async ({ limit, ...input }) => {
-      const candidates = (await repository.candidates(input)).slice(0, limit);
-      const payload = { candidates };
+    async ({ limit, battleId, ...input }) => {
+      const battle = battleId ? await repository.getBattle(battleId) : null;
+      if (battleId && !battle)
+        return { isError: true, content: [{ type: "text" as const, text: "Battle not found." }] };
+      const candidates = (
+        await repository.candidates({
+          ...(battle ? resolveCandidateCriteria(battle) : input),
+          kind: input.kind,
+          strictRequiredTags: Boolean(battle),
+        })
+      ).slice(0, limit);
+      const payload = { candidates, ...(battle ? { battle } : {}) };
       return {
         content: [{ type: "text", text: JSON.stringify(payload, null, 2) }],
         structuredContent: payload,

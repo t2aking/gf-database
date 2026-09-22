@@ -204,6 +204,12 @@ vp run db:migrate
 
 `data/private`、DB dump、スクリーンショット、`.env`などはGit管理を禁止しています。バックアップもリポジトリ外へ保存してください。
 
+## バトル条件
+
+画面の「バトル条件」で名称、敵属性、推奨属性、目的（フルオート・短期・長期・その他）、必須タグ、優先タグ、メモを登録できます。タグは管理語彙から選び、削除時には確認が表示されます。
+
+APIは `GET/POST /api/battles` と `GET/PUT/DELETE /api/battles/:battleId` を提供します。削除には `{"confirm":true}` が必要です。推薦時は `POST /api/candidates` に `{"battleId":"<UUID>"}` を渡せます。必須タグをすべて持つ所持候補だけを残し、優先タグは順位に加点します。MCPでは `list_battle_conditions` で条件を確認し、`find_owned_candidates` の `battleId` に指定できます。
+
 ## Quality checks
 
 ```sh
