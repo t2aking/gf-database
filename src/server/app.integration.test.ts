@@ -81,6 +81,32 @@ describe.skipIf(!testUrl)("catalog API with PostgreSQL", () => {
     expect((await send(`/api/battles/${item.id}`, "DELETE", { confirm: true })).status).toBe(200);
     expect(await repository.getBattle(item.id)).toBeNull();
   });
+  it("finds a required-tag match after the first 200 owned entries", async () => {
+    await client.unsafe(`
+      WITH inserted AS (
+        INSERT INTO catalog_entities (kind, name, normalized_name, element, rarity, tags, details)
+        SELECT 'weapon', 'a-review-' || lpad(n::text, 4, '0'),
+          'a-review-' || lpad(n::text, 4, '0'), 'water', 'SSR', ARRAY[]::text[],
+          '{"weaponType":"sword","skillEffects":["attack"],"maxUncapLevel":5}'::jsonb
+        FROM generate_series(1, 200) AS n
+        RETURNING id
+      )
+      INSERT INTO inventory_entries (entity_id) SELECT id FROM inserted
+    `);
+    const matchId = await create("z-review-healer");
+    await client.unsafe("UPDATE catalog_entities SET tags = ARRAY['heal']::text[] WHERE id = $1", [
+      matchId,
+    ]);
+    await send(`/api/inventory/${matchId}`, "PUT", { owned: true });
+
+    const candidates = await repository.candidates({
+      kind: "weapon",
+      requiredTags: ["heal"],
+      strictRequiredTags: true,
+      limit: 200,
+    });
+    expect(candidates.map((candidate) => candidate.id)).toContain(matchId);
+  });
   it("updates normalized search fields while retaining inventory, metadata and sources", async () => {
     const id = await create();
     await client.unsafe("UPDATE catalog_entities SET metadata = '{\"test\":true}' WHERE id = $1", [

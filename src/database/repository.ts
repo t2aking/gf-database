@@ -1,4 +1,4 @@
-import { and, eq, ilike, isNotNull, isNull, sql } from "drizzle-orm";
+import { and, arrayContains, eq, ilike, isNotNull, isNull, sql } from "drizzle-orm";
 import type {
   CatalogInput,
   CatalogUpdate,
@@ -10,7 +10,7 @@ import { catalogUpdateSchema } from "../domain/catalog.js";
 import { parseImportCsv, type ImportPreview } from "../domain/csv-import.js";
 import { rankOwnedCandidates } from "../domain/catalog.js";
 import { sourceReviewCutoff, type SourceInput, type SourceStatus } from "../domain/sources.js";
-import { normalizeName } from "../domain/normalization.js";
+import { normalizeName, normalizeTags } from "../domain/normalization.js";
 import type { BattleInput } from "../domain/battles.js";
 import type { Database } from "./client.js";
 import { battleContents, catalogEntities, inventoryEntries, sourceReferences } from "./schema.js";
@@ -21,6 +21,7 @@ export type CatalogSearch = {
   element?: Element;
   owned?: boolean;
   sourceStatus?: SourceStatus;
+  requiredTags?: string[];
   limit?: number;
 };
 
@@ -72,6 +73,8 @@ export class CatalogRepository {
       conditions.push(ilike(catalogEntities.normalizedName, `%${normalizeName(options.query)}%`));
     if (options.kind) conditions.push(eq(catalogEntities.kind, options.kind));
     if (options.element) conditions.push(eq(catalogEntities.element, options.element));
+    if (options.requiredTags?.length)
+      conditions.push(arrayContains(catalogEntities.tags, normalizeTags(options.requiredTags)));
     if (options.owned === true) conditions.push(isNotNull(inventoryEntries.id));
     if (options.owned === false) conditions.push(isNull(inventoryEntries.id));
 
@@ -389,6 +392,7 @@ export class CatalogRepository {
       kind: options.kind,
       element: undefined,
       owned: true,
+      requiredTags: options.strictRequiredTags ? options.requiredTags : undefined,
       limit: options.limit ?? 200,
     });
     return rankOwnedCandidates(
