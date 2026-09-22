@@ -28,6 +28,15 @@ const candidates: Candidate[] = [
 ];
 
 describe("rankOwnedCandidates", () => {
+  it("filters missing required tags and rewards preferred tags for a battle", () => {
+    const result = rankOwnedCandidates(candidates, {
+      requiredTags: ["heal"],
+      preferredTags: ["damage-cut"],
+      strictRequiredTags: true,
+    });
+    expect(result.map((candidate) => candidate.id)).toEqual(["a"]);
+    expect(result[0]?.score).toBeGreaterThan(15);
+  });
   it("prioritizes matching element and required roles", () => {
     const result = rankOwnedCandidates(candidates, {
       element: "fire",

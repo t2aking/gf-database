@@ -1,4 +1,5 @@
 import type { ImportPreview } from "../domain/csv-import.js";
+import type { BattleInput } from "../domain/battles.js";
 import type { SourceInput, SourceStatus } from "../domain/sources.js";
 import type {
   CatalogDetails,
@@ -47,6 +48,8 @@ export type SourceReference = {
   verifiedAt: string | null;
 };
 
+export type Battle = BattleInput & { id: string; createdAt: string; updatedAt: string };
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -80,6 +83,27 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  listBattles() {
+    return request<{ items: Battle[] }>("/api/battles");
+  },
+  createBattle(input: BattleInput) {
+    return request<{ item: Battle }>("/api/battles", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  },
+  updateBattle(id: string, input: BattleInput) {
+    return request<{ item: Battle }>(`/api/battles/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(input),
+    });
+  },
+  deleteBattle(id: string) {
+    return request(`/api/battles/${id}`, {
+      method: "DELETE",
+      body: JSON.stringify({ confirm: true }),
+    });
+  },
   previewImport(csv: string) {
     return request<{ preview: ImportPreview; token: string | null }>("/api/import/preview", {
       method: "POST",
@@ -135,6 +159,7 @@ export const api = {
     kind?: CatalogItem["kind"];
     element?: NonNullable<CatalogItem["element"]>;
     requiredTags: string[];
+    battleId?: string;
   }) {
     return request<{
       candidates: Array<

@@ -4,6 +4,72 @@ import { createMcpServer } from "./server.js";
 
 const id = "00000000-0000-4000-8000-000000000001";
 describe("MCP detail tool", () => {
+  it("lists battle conditions and uses one for candidate ranking", async () => {
+    const battle = {
+      id,
+      name: "架空のMCPバトル",
+      enemyElement: "fire",
+      recommendedElement: "water",
+      purpose: "short",
+      requiredTags: ["heal"],
+      preferredTags: ["dispel"],
+      notes: null,
+    };
+    const calls: unknown[] = [];
+    const repository = {
+      listBattles: async () => [battle],
+      getBattle: async () => battle,
+      candidates: async (options: unknown) => {
+        calls.push(options);
+        return [];
+      },
+    };
+    const server = createMcpServer(repository as unknown as CatalogRepository);
+    type Transport = Parameters<typeof server.connect>[0];
+    const messages: unknown[] = [];
+    const transport: Transport = {
+      start: async () => {},
+      close: async () => {},
+      send: async (message) => {
+        messages.push(JSON.parse(JSON.stringify(message)));
+      },
+    };
+    await server.connect(transport);
+    try {
+      transport.onmessage?.({
+        jsonrpc: "2.0",
+        id: 10,
+        method: "tools/call",
+        params: { name: "list_battle_conditions", arguments: {} },
+      });
+      await expect
+        .poll(() => messages)
+        .toContainEqual(
+          expect.objectContaining({
+            id: 10,
+            result: expect.objectContaining({ structuredContent: { items: [battle] } }),
+          }),
+        );
+      transport.onmessage?.({
+        jsonrpc: "2.0",
+        id: 11,
+        method: "tools/call",
+        params: { name: "find_owned_candidates", arguments: { battleId: id } },
+      });
+      await expect
+        .poll(() => calls)
+        .toContainEqual(
+          expect.objectContaining({
+            element: "water",
+            requiredTags: ["heal"],
+            preferredTags: ["dispel"],
+            strictRequiredTags: true,
+          }),
+        );
+    } finally {
+      await server.close();
+    }
+  });
   it("returns sources and ISO dates through tools/call and reports missing entities", async () => {
     const repository = {
       get: async (entityId: string) =>

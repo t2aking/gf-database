@@ -60,6 +60,27 @@ describe.skipIf(!testUrl)("catalog API with PostgreSQL", () => {
       await client.end();
     }
   });
+  it("persists battle requirements through create, update and delete", async () => {
+    const input = {
+      name: "架空の周回バトル",
+      enemyElement: "fire",
+      recommendedElement: "water",
+      purpose: "full-auto",
+      requiredTags: ["heal"],
+      preferredTags: ["dispel"],
+      notes: "架空の条件",
+    };
+    const created = await send("/api/battles", "POST", input);
+    expect(created.status).toBe(201);
+    const { item } = (await created.json()) as { item: { id: string } };
+    expect(await repository.getBattle(item.id)).toMatchObject(input);
+    expect((await repository.listBattles()).map((battle) => battle.id)).toContain(item.id);
+    const updated = { ...input, purpose: "long", preferredTags: ["damage-cut"] };
+    expect((await send(`/api/battles/${item.id}`, "PUT", updated)).status).toBe(200);
+    expect(await repository.getBattle(item.id)).toMatchObject(updated);
+    expect((await send(`/api/battles/${item.id}`, "DELETE", { confirm: true })).status).toBe(200);
+    expect(await repository.getBattle(item.id)).toBeNull();
+  });
   it("updates normalized search fields while retaining inventory, metadata and sources", async () => {
     const id = await create();
     await client.unsafe("UPDATE catalog_entities SET metadata = '{\"test\":true}' WHERE id = $1", [
