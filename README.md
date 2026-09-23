@@ -154,7 +154,7 @@ PostgreSQLコンテナを起動し、**リポジトリ外**の既存ディレク
 
 ```sh
 mkdir -p "$HOME/gf-db-backups"
-vp run db:backup "$HOME/gf-db-backups/gf-2026-09-22.dump"
+vp run db:backup --database gf_database "$HOME/gf-db-backups/gf-2026-09-22.dump"
 cat "$HOME/gf-db-backups/gf-2026-09-22.dump.json"
 ```
 

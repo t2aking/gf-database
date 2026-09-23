@@ -99,7 +99,11 @@ export async function postgresWithFile(
   return Buffer.concat(stdout).toString("utf8");
 }
 
-export async function dumpToFile(container: string, output: string): Promise<void> {
+export async function dumpToFile(
+  container: string,
+  database: string,
+  output: string,
+): Promise<void> {
   const child = spawn(
     "docker",
     [
@@ -109,7 +113,9 @@ export async function dumpToFile(container: string, output: string): Promise<voi
       "sh",
       "-eu",
       "-c",
-      'export PGPASSWORD="$POSTGRES_PASSWORD"; exec pg_dump -Fc --no-owner --no-privileges -U "$POSTGRES_USER" -d "$POSTGRES_DB"',
+      'export PGPASSWORD="$POSTGRES_PASSWORD"; exec pg_dump -Fc --no-owner --no-privileges -U "$POSTGRES_USER" -d "$1"',
+      "sh",
+      database,
     ],
     { stdio: ["ignore", "pipe", "pipe"] },
   );

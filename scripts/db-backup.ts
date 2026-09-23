@@ -9,20 +9,24 @@ import {
 import { dumpToFile, findContainer, postgres } from "./db-docker.js";
 
 async function main(): Promise<void> {
-  if (process.argv.length !== 3)
-    throw new Error("Usage: vp run db:backup /path/outside/repository/name.dump");
-  const output = resolveExternalBackupPath(process.argv[2], repositoryRoot);
+  const args = process.argv.slice(2);
+  if (args.length !== 3 || args[0] !== "--database" || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(args[1]))
+    throw new Error(
+      "Usage: vp run db:backup --database DATABASE /path/outside/repository/name.dump",
+    );
+  const database = args[1];
+  const output = resolveExternalBackupPath(args[2], repositoryRoot);
   const container = await findContainer();
-  const database = (await postgres(container, 'printf "%s" "$POSTGRES_DB"')).trim();
   const schemaVersion = (
     await postgres(
       container,
-      'psql -v ON_ERROR_STOP=1 -Atq -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT COALESCE(MAX(id)::text, \'none\') FROM drizzle.__drizzle_migrations"',
+      'psql -v ON_ERROR_STOP=1 -Atq -U "$POSTGRES_USER" -d "$1" -c "SELECT COALESCE(MAX(id)::text, \'none\') FROM drizzle.__drizzle_migrations"',
+      [database],
     )
   ).trim();
   console.info(`Backing up database ${database} from container ${container} to ${output}`);
   try {
-    await dumpToFile(container, output);
+    await dumpToFile(container, database, output);
     const metadata: BackupMetadata = {
       format: "pg_dump custom",
       createdAt: new Date().toISOString(),
