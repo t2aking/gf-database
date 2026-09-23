@@ -9,6 +9,8 @@
     "dev:api": "tsx watch src/server/index.ts",
     "start:api": "tsx src/server/index.ts",
     "mcp": "sh scripts/run-mcp.sh",
+    "doctor": "sh scripts/doctor.sh",
+    "mcp:smoke": "tsx scripts/mcp-smoke.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/database/migrate.ts",
     "db:seed:sample": "tsx src/database/seed-sample.ts",

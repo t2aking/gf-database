@@ -16,21 +16,59 @@
 
 ## Setup
 
-Vite+ (`vp`)、Dockerが必要です。Vite+がNode.jsとpnpmのバージョンを管理します。
+この手順はmacOSとLinux向けです。事前に[Vite+ の公式セットアップ](https://viteplus.dev/guide/)で `vp` を入れ、macOSでは[Docker Desktop](https://docs.docker.com/desktop/setup/install/mac-install/)を起動、Linuxでは[Docker Engine](https://docs.docker.com/engine/install/)とComposeプラグインを起動してください。Vite+がこのプロジェクトで必要なNode.js 24.11.0以上とpnpm 11.19.0以上を管理します。LinuxではDockerの利用権限も必要です。
 
 Vite+を導入した直後に`vp`が見つからない場合は、新しいシェルを開くか、インストーラーが案内する`~/.config/vite-plus/env`をシェル設定から読み込んでください。
 
 ```sh
-cp .env.example .env
-vp install
-docker compose up -d
-vp run db:migrate
+vp --version
+docker --version
+docker compose version
+docker info
+node --version
+pnpm --version
 ```
 
-必要なら、架空の動作確認用データを追加できます。
+リポジトリのルートで次の順に実行します。`.env.example`はローカル開発専用の架空の認証情報です。既存の`.env`がある場合は上書きせず、接続先を確認してください。
 
 ```sh
+if [ ! -f .env ]; then cp .env.example .env; fi
+vp install
+docker compose up -d
+docker compose ps
+vp run db:migrate
 vp run db:seed:sample
+sh scripts/doctor.sh
+vp run mcp:smoke
+```
+
+`doctor`は `vp` / Docker / Node.js / pnpm / `.env` / PostgreSQL接続・認証 / migration状態を確認します。DBを更新しません。失敗時は表示された不足項目を直し、同じコマンドを再実行してください。`vp`自体が見つからない場合も `sh scripts/doctor.sh` で確認できます。`mcp:smoke` は実際のstdioサーバーを起動し、初期化、`tools/list`、`get_inventory_summary`の呼び出しまで確認します。いずれも `OK` で終了すれば初回セットアップ完了です。
+
+架空seedは初回確認用です。再実行する前に既存データを確認してください。実データはseedやGitに入れず、ローカルの画面から登録します。
+
+### よくある失敗
+
+| 症状                    | 対処                                                                                                                                                                                                         |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `vp: command not found` | 新しいシェルを開くか、Vite+のセットアップに従って環境設定を読み込む。`sh scripts/doctor.sh`で再確認する。                                                                                                    |
+| `docker info`が失敗する | macOSではDocker Desktopを起動する。LinuxではDocker Engineを起動し、現在のユーザーのDocker利用権限を確認する。                                                                                                |
+| `5432`のポート競合      | `docker compose up -d`のエラーと `docker compose ps` を確認する。既存のPostgreSQLを止めるか、`.env`に`GF_DB_PORT=5433`を追記して`DATABASE_URL`のポートも`5433`へ変更し、`docker compose up -d`を再実行する。 |
+| DB未起動・接続拒否      | `docker compose up -d`、`docker compose ps`でpostgresの起動とhealthy状態を確認し、`sh scripts/doctor.sh`を再実行する。                                                                                       |
+| 認証エラー              | `.env`の`DATABASE_URL`と`docker-compose.yml`のDB名・ユーザー・パスワードを照合する。既存のDocker volumeは環境変数を書き換えても初期パスワードが変わらないため、既存DBの認証情報を確認する。                  |
+| migration不足           | `vp run db:migrate`を実行してからdoctorを再実行する。履歴不一致なら別のDBへの接続を疑い、既存データを消さずに確認する。                                                                                      |
+
+作業を終えるときは `docker compose stop`、再開するときは `docker compose up -d` を実行します。データを別端末へ移す場合は[バックアップと復元](#バックアップと復元)を参照してください。`docker compose down -v` は保存済みDBを削除するため、通常の終了には使いません。
+
+### 公開前のデータ確認
+
+- `.env`、DB dump、実データCSV、スクリーンショット、バックアップをGitに追加しない。
+- 実データCSVはリポジトリ外か、無視対象の `data/imports/` に保管する。
+- バックアップはリポジトリ外に保管する。
+- commit前に以下を実行し、stagedファイルも確認する。
+
+```sh
+vp run check:data
+git diff --cached --name-only
 ```
 
 ## Development
@@ -126,6 +164,25 @@ MCPクライアントには、リポジトリを作業ディレクトリとし�
 ```sh
 sh scripts/run-mcp.sh
 ```
+
+一般的なMCPクライアントのstdio設定例（`/absolute/path/to/gf-database`を `pwd` で確認した絶対パスへ置換）:
+
+```json
+{
+  "mcpServers": {
+    "gf-database": {
+      "command": "sh",
+      "args": ["scripts/run-mcp.sh"],
+      "cwd": "/absolute/path/to/gf-database",
+      "env": {
+        "DATABASE_URL": "postgres://gf:local-development-only@127.0.0.1:5432/gf_database"
+      }
+    }
+  }
+}
+```
+
+このURLは`.env.example`と同じローカル専用の架空値です。`GF_DB_PORT`を変更した場合は、このURLのポートも同じ値に変更してください。実際の認証情報をクライアント設定に書く場合は、その設定ファイルをGit管理外に置いてください。`cwd`を指定できないクライアントでは、`command`を絶対パスの`sh`、`args`をスクリプトの絶対パスにしたうえで、起動作業ディレクトリをリポジトリルートにしてください。MCPを再確認する場合は `vp run mcp:smoke` を実行します。
 
 提供するツール:
 
