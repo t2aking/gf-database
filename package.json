@@ -12,6 +12,8 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/database/migrate.ts",
     "db:seed:sample": "tsx src/database/seed-sample.ts",
+    "db:backup": "tsx scripts/db-backup.ts",
+    "db:restore": "tsx scripts/db-restore.ts",
     "check:data": "sh scripts/check-public-data.sh --all",
     "check": "vp check && pnpm check:data",
     "test": "vp test",
