@@ -37,6 +37,6 @@ jobs:
           run-install: true
       - run: sh scripts/check-public-data.sh --all
       - run: vp check
-      - run: vp test
       - run: pnpm db:migrate
+      - run: vp test
       - run: vp build

@@ -129,8 +129,10 @@ sh scripts/run-mcp.sh
 
 提供するツール:
 
+- `list_battle_conditions`: 登録したバトル条件を一覧取得（`limit` 1〜50、既定30、`offset` 0〜10,000。続きがあれば`hasMore`を返す）
+- `get_battle_condition`: `battleId`でバトル条件の詳細を取得
 - `search_entities`: カタログ検索
-- `get_entity_details`: カタログ詳細・所持情報・出典・確認日・検証日の取得
+- `get_entity_details`: カタログ詳細・所持情報・出典・確認日・検証日の取得。出典は`sourceLimit` 1〜50（既定30）、`sourceOffset` 0〜10,000（既定0）で分割取得し、必要に応じて`sourceCount`と`hasMoreSources`を返す
 - `get_inventory_summary`: 所持数の集計
 - `find_owned_candidates`: 属性・役割タグによる所持候補の順位付け
 - `recommend_owned_formation`: 所持中のキャラクター・武器・召喚石を種類別に評価し、スコア内訳、一致・不足タグ、適格判定、警告を返す
@@ -145,6 +147,31 @@ sh scripts/run-mcp.sh
 vp run db:generate
 vp run db:migrate
 ```
+
+### バックアップと復元
+
+PostgreSQLコンテナを起動し、**リポジトリ外**の既存ディレクトリへカスタム形式のバックアップを作成します。保存先は必ず明示し、既存ファイルへの上書きは拒否します。`*.dump`と同名の`*.dump.json`を一緒に保管してください。JSONには作成日時、マイグレーションの最新ID（schema version）、形式、SHA-256チェックサム、元のDB名を記録します。認証情報は含みません。これらのファイルには所持情報や出典などの実データが含まれるため、Gitへ追加しないでください。
+
+```sh
+mkdir -p "$HOME/gf-db-backups"
+vp run db:backup "$HOME/gf-db-backups/gf-2026-09-22.dump"
+cat "$HOME/gf-db-backups/gf-2026-09-22.dump.json"
+```
+
+通常はこの作業ディレクトリの`docker compose`に属する`postgres`コンテナを使用します。別の作業ディレクトリから既存コンテナを指定する場合は、`docker ps`で名前を確認し、`GF_DB_CONTAINER=コンテナ名`をコマンドの前に付けてください。コマンドは選択したコンテナ名とDB名を表示します。選択を誤ると別DBのバックアップや復元になるため、表示を確認してください。
+
+復元では、**同じコンテナ内に作成した空の別DB**を指定します。既存のデータがあるDBとコンテナの既定DBへの復元は拒否します。次の例は`gf_restored`を作り、バックアップのチェックサムと形式を検証してから復元します。表示された対象と影響を読み、`RESTORE gf_restored`を正確に入力した場合だけ書き込みます。
+
+```sh
+docker compose exec -T postgres sh -c 'export PGPASSWORD="$POSTGRES_PASSWORD"; exec createdb -U "$POSTGRES_USER" gf_restored'
+vp run db:restore --database gf_restored "$HOME/gf-db-backups/gf-2026-09-22.dump"
+```
+
+`pg_restore --single-transaction --exit-on-error`を使うため、復元処理中のエラーはロールバックします。失敗後は対象DBが空であることを確認し、不明な状態ならその復元専用DBを削除して作り直してから再試行してください。復元後は `.env` の `DATABASE_URL` のDB名を`gf_restored`に変更してAPIを起動し、カタログ・所持情報・出典を確認してください。復元済みDBに対して`db:migrate`を先に実行する必要はありません。
+
+端末移行時は、旧端末で作成した`.dump`と`.dump.json`を外部ドライブなどで新端末の**リポジトリ外**へコピーします。新端末でSetupの`docker compose up -d`まで実施し、上記の空DB作成・復元・`.env`切り替えを行います。新端末でも同じPostgreSQLメジャーバージョンのコンテナイメージを使ってください。旧端末の`.env`やDBパスワードをバックアップファイル名・共有先・コマンド出力に含めないでください。
+
+スモークテストでは、架空データだけを入れたDBをバックアップし、別の空DBへ復元して、件数・所持情報・出典を比較します。公開禁止データ検査は従来どおり`vp run check:data`で実行してください。
 
 ### データ入力仕様
 
