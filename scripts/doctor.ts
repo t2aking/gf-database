@@ -60,7 +60,9 @@ async function main(): Promise<void> {
   } catch (error) {
     const code = (error as { code?: string }).code;
     if (code === "ECONNREFUSED" || code === "ETIMEDOUT")
-      console.error("FAIL PostgreSQL is unreachable; run docker compose up -d and check port 5432");
+      console.error(
+        "FAIL PostgreSQL is unreachable; run docker compose up -d and check the host/port in DATABASE_URL",
+      );
     else if (code === "28P01" || code === "28000")
       console.error("FAIL PostgreSQL authentication; compare .env with docker-compose.yml");
     else

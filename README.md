@@ -32,7 +32,7 @@ pnpm --version
 リポジトリのルートで次の順に実行します。`.env.example`はローカル開発専用の架空の認証情報です。既存の`.env`がある場合は上書きせず、接続先を確認してください。
 
 ```sh
-cp .env.example .env
+if [ ! -f .env ]; then cp .env.example .env; fi
 vp install
 docker compose up -d
 docker compose ps
