@@ -29,8 +29,8 @@ jobs:
       TEST_DATABASE_URL: postgres://gf:local-development-only@127.0.0.1:5432/gf_database
       DATABASE_URL: postgres://gf:local-development-only@127.0.0.1:5432/gf_database
     steps:
-      - uses: actions/checkout@v6
-      - uses: voidzero-dev/setup-vp@v1.19.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: voidzero-dev/setup-vp@3754dd7dbdb32bd8f6d28b6043de13ad3a75f21f # v1.21.1
         with:
           node-version: "24.11.0"
           cache: true
