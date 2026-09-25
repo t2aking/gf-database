@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "Local-first game catalog, inventory manager, and MCP server.",
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "dev": "vp dev",
