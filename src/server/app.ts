@@ -163,6 +163,11 @@ export function createApp(repository: CatalogRepository) {
     return context.json({ items: rows });
   });
 
+  app.get("/api/catalog/export", async (context) => {
+    context.header("Cache-Control", "no-store");
+    return context.json(await repository.exportCatalog());
+  });
+
   app.post(
     "/api/catalog",
     zValidator("json", catalogInputSchema, validationHook),

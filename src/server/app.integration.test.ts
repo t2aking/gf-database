@@ -5,7 +5,7 @@ import postgres from "postgres";
 import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 import { CatalogRepository } from "../database/repository.js";
 import * as schema from "../database/schema.js";
-import { importTemplate } from "../domain/csv-import.js";
+import { importTemplate, parseImportCsv } from "../domain/csv-import.js";
 import { createApp } from "./app.js";
 
 // Explicit opt-in; every run uses its own schema and only removes that schema.
@@ -448,5 +448,64 @@ describe.skipIf(!testUrl)("catalog API with PostgreSQL", () => {
       await client.unsafe("DROP FUNCTION pause_import()");
       await other.end();
     }
+  });
+  it("exports every catalog row beyond the search cap and preserves sources on reimport", async () => {
+    const csv = importTemplate().replaceAll("架空の", "架空の書出試験");
+    const preview = (await (await send("/api/import/preview", "POST", { csv })).json()) as {
+      token: string;
+    };
+    expect(
+      (await send("/api/import/apply", "POST", { csv, token: preview.token, confirm: true }))
+        .status,
+    ).toBe(200);
+    const target = (await repository.search({ query: "架空の書出試験試験剣" }))[0]!;
+    await repository.createSource(target.id, { kind: "user", observedAt: "2026-01-01T00:00:00Z" });
+    await client.unsafe(
+      "UPDATE catalog_entities SET metadata = '{\"local\":true}'::jsonb WHERE id = $1",
+      [target.id],
+    );
+    await client.unsafe(`
+      INSERT INTO catalog_entities (kind, name, normalized_name, details)
+      SELECT 'weapon', '架空の書出連番' || lpad(n::text, 4, '0'),
+        '架空の書出連番' || lpad(n::text, 4, '0'),
+        '{"weaponType":"sword","skillEffects":["attack"],"maxUncapLevel":5}'::jsonb
+      FROM generate_series(1, 501) AS n
+    `);
+    const response = await app.request("/api/catalog/export");
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    const result = (await response.json()) as { total: number; files: string[] };
+    expect(result.total).toBeGreaterThan(500);
+    const rows = result.files.flatMap((file) => {
+      const parsed = parseImportCsv(file);
+      expect(parsed.errors).toEqual([]);
+      return parsed.rows;
+    });
+    expect(rows).toHaveLength(result.total);
+    expect(rows.filter((row) => row.catalog.name.startsWith("架空の書出連番"))).toHaveLength(501);
+    expect(rows.filter((row) => row.catalog.name.startsWith("架空の書出試験"))).toHaveLength(3);
+    const original = await repository.get(target.id);
+    const part = result.files.find((file) => file.includes("架空の書出試験試験剣"))!;
+    const reimport = (await (await send("/api/import/preview", "POST", { csv: part })).json()) as {
+      preview: { newCount: number; errors: unknown[] };
+      token: string;
+    };
+    expect(reimport.preview.newCount).toBe(0);
+    expect(reimport.preview.errors).toEqual([]);
+    expect(
+      (await send("/api/import/apply", "POST", { csv: part, token: reimport.token, confirm: true }))
+        .status,
+    ).toBe(200);
+    expect(await repository.get(target.id)).toMatchObject({
+      details: original!.details,
+      metadata: original!.metadata,
+      inventory: {
+        quantity: original!.inventory!.quantity,
+        uncapLevel: original!.inventory!.uncapLevel,
+        awakeningLevel: original!.inventory!.awakeningLevel,
+        notes: original!.inventory!.notes,
+      },
+      sources: original!.sources,
+    });
   });
 });
