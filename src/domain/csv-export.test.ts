@@ -21,6 +21,25 @@ const character = {
 };
 
 describe("catalog CSV export", () => {
+  it("keeps formula-like text inert in a spreadsheet and restores it on import", () => {
+    const file = exportCatalogCsv([
+      {
+        ...character,
+        name: '=HYPERLINK("https://example.invalid")',
+        rarity: "＋123",
+        notes: "@SUM(1,2)",
+      },
+    ])[0]!;
+    expect(file).toContain('"\t=HYPERLINK(');
+    expect(file).toContain('"\t＋123"');
+    expect(file).toContain('"\t@SUM(1,2)"');
+    const parsed = parseImportCsv(file);
+    expect(parsed.errors).toEqual([]);
+    expect(parsed.rows[0]).toMatchObject({
+      catalog: { name: '=HYPERLINK("https://example.invalid")', rarity: "＋123" },
+      inventory: { notes: "@SUM(1,2)" },
+    });
+  });
   it("round trips all three kinds and quoted values through the import parser", () => {
     const files = exportCatalogCsv([
       character,

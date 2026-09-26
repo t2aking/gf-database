@@ -41,10 +41,16 @@ export function App() {
   const [candidateBattleId, setCandidateBattleId] = useState("");
   const [recommendation, setRecommendation] = useState<RecommendationResult>();
   const recommendationRevision = useRef(0);
+  const [catalogRevision, setCatalogRevision] = useState(0);
 
   function invalidateRecommendation() {
     recommendationRevision.current += 1;
     setRecommendation(undefined);
+  }
+
+  function markCatalogChanged() {
+    setCatalogRevision((revision) => revision + 1);
+    invalidateRecommendation();
   }
 
   const loadItems = useCallback(async () => {
@@ -86,7 +92,7 @@ export function App() {
         return;
       }
       await api.createCatalog(parsed.data);
-      invalidateRecommendation();
+      markCatalogChanged();
       formElement.reset();
       await loadItems();
     } catch (caught) {
@@ -106,7 +112,7 @@ export function App() {
         awakeningLevel: item.awakeningLevel,
         notes: item.notes,
       });
-      invalidateRecommendation();
+      markCatalogChanged();
       await loadItems();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "所持情報の更新に失敗しました。");
@@ -173,8 +179,9 @@ export function App() {
       )}
 
       <CsvImport
+        catalogRevision={catalogRevision}
         onChanged={async () => {
-          invalidateRecommendation();
+          markCatalogChanged();
           await loadItems();
         }}
       />
@@ -335,7 +342,7 @@ export function App() {
           entityId={selectedId}
           onClose={() => setSelectedId(undefined)}
           onChanged={async () => {
-            invalidateRecommendation();
+            markCatalogChanged();
             await loadItems();
           }}
         />

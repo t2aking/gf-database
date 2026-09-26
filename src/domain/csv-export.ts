@@ -17,8 +17,12 @@ export type CsvExportRecord = {
 
 const encoder = new TextEncoder();
 const header = `\ufeff${importColumns.join(",")}\r\n`;
-const cell = (value: string | number | boolean | null) =>
-  `"${String(value ?? "").replaceAll('"', '""')}"`;
+const cell = (value: string | number | boolean | null) => {
+  const text = String(value ?? "");
+  // The import schemas trim text fields, so the leading tab protects spreadsheet opens
+  // without changing the value when this file is imported again.
+  return `"${(typeof value === "string" && /^\s*[=+\-@＝＋－＠]/u.test(text) ? `\t${text}` : text).replaceAll('"', '""')}"`;
+};
 
 export function exportCatalogCsv(records: readonly CsvExportRecord[]): string[] {
   if (records.length === 0) return [];
