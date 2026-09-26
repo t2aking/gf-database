@@ -8,6 +8,7 @@ import type {
 } from "../domain/catalog.js";
 import { catalogUpdateSchema } from "../domain/catalog.js";
 import { parseImportCsv, type ImportPreview } from "../domain/csv-import.js";
+import { exportCatalogCsv } from "../domain/csv-export.js";
 import { rankOwnedCandidates } from "../domain/catalog.js";
 import { sourceReviewCutoff, type SourceInput, type SourceStatus } from "../domain/sources.js";
 import { normalizeName, normalizeTags } from "../domain/normalization.js";
@@ -104,6 +105,32 @@ export class CatalogRepository {
       .where(conditions.length > 0 ? and(...conditions) : undefined)
       .orderBy(catalogEntities.kind, catalogEntities.name)
       .limit(Math.min(options.limit ?? 100, 500));
+  }
+
+  async exportCatalog() {
+    const rows = await this.db
+      .select({
+        kind: catalogEntities.kind,
+        name: catalogEntities.name,
+        element: catalogEntities.element,
+        rarity: catalogEntities.rarity,
+        tags: catalogEntities.tags,
+        details: catalogEntities.details,
+        ownedId: inventoryEntries.id,
+        quantity: inventoryEntries.quantity,
+        uncapLevel: inventoryEntries.uncapLevel,
+        awakeningLevel: inventoryEntries.awakeningLevel,
+        notes: inventoryEntries.notes,
+      })
+      .from(catalogEntities)
+      .leftJoin(inventoryEntries, eq(inventoryEntries.entityId, catalogEntities.id))
+      .orderBy(catalogEntities.kind, catalogEntities.name, catalogEntities.id);
+    return {
+      total: rows.length,
+      files: exportCatalogCsv(
+        rows.map(({ ownedId, ...row }) => ({ ...row, owned: ownedId !== null })),
+      ),
+    };
   }
 
   async create(input: CatalogInput) {

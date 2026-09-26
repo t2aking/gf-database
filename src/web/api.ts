@@ -117,6 +117,9 @@ export const api = {
       body: JSON.stringify({ csv, token, confirm: true }),
     });
   },
+  exportCatalog() {
+    return request<{ total: number; files: string[] }>("/api/catalog/export");
+  },
   searchCatalog(params: URLSearchParams) {
     return request<{ items: CatalogItem[] }>(`/api/catalog?${params.toString()}`);
   },

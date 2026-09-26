@@ -1,10 +1,18 @@
-import { useRef, useState, type ChangeEvent } from "react";
+import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { importTemplate, maxImportBytes, type ImportPreview } from "../domain/csv-import.js";
 import { api, ApiError } from "./api.js";
 import { buttonClass, kindLabels } from "./CatalogFields.js";
 
-export function CsvImport({ onChanged }: { onChanged: () => Promise<void> }) {
+export function CsvImport({
+  onChanged,
+  catalogRevision,
+}: {
+  onChanged: () => Promise<void>;
+  catalogRevision: number;
+}) {
   const input = useRef<HTMLInputElement>(null);
+  const latestRevision = useRef(catalogRevision);
+  latestRevision.current = catalogRevision;
   const [csv, setCsv] = useState("");
   const [filename, setFilename] = useState("");
   const [review, setReview] = useState<{ preview: ImportPreview; token: string | null }>();
@@ -12,6 +20,14 @@ export function CsvImport({ onChanged }: { onChanged: () => Promise<void> }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const [message, setMessage] = useState<string>();
+  const [exportFiles, setExportFiles] = useState<string[]>([]);
+  const [exportTotal, setExportTotal] = useState(0);
+  const [exportPrepared, setExportPrepared] = useState(false);
+  useEffect(() => {
+    setExportFiles([]);
+    setExportTotal(0);
+    setExportPrepared(false);
+  }, [catalogRevision]);
   function clear() {
     setCsv("");
     setFilename("");
@@ -65,6 +81,8 @@ export function CsvImport({ onChanged }: { onChanged: () => Promise<void> }) {
     try {
       const result = await api.applyImport(csv, review.token);
       clear();
+      setExportFiles([]);
+      setExportPrepared(false);
       setMessage(
         `一括保存しました。新規 ${result.preview.newCount}件、更新 ${result.preview.updateCount}件。`,
       );
@@ -85,6 +103,33 @@ export function CsvImport({ onChanged }: { onChanged: () => Promise<void> }) {
     const anchor = document.createElement("a");
     anchor.href = url;
     anchor.download = "gf-import-template.csv";
+    anchor.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+  async function prepareExport() {
+    const revision = catalogRevision;
+    setBusy(true);
+    setError(undefined);
+    setExportFiles([]);
+    setExportTotal(0);
+    setExportPrepared(false);
+    try {
+      const result = await api.exportCatalog();
+      if (latestRevision.current !== revision) return;
+      setExportFiles(result.files);
+      setExportTotal(result.total);
+      setExportPrepared(true);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "CSVの書き出しに失敗しました。");
+    } finally {
+      setBusy(false);
+    }
+  }
+  function downloadExport(csv: string, index: number) {
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `gf-catalog-${String(index + 1).padStart(3, "0")}.csv`;
     anchor.click();
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
@@ -116,6 +161,38 @@ export function CsvImport({ onChanged }: { onChanged: () => Promise<void> }) {
         <button className={buttonClass} type="button" onClick={download}>
           架空データのCSVテンプレートをダウンロード
         </button>
+        <div className="rounded-xl border border-line p-4 text-sm">
+          <p className="mb-2 font-bold">登録済みデータを書き出す</p>
+          <p className="mb-3 text-muted">
+            CSVには実際のカタログと所持情報が含まれます。Git管理外に保存してください。出典とmetadataは含まれず、再取り込み時も保持されます。数式に見える値には保護用のタブを付けています。表計算ソフトで開く際は各列を文字列として読み込み、保存後はプレビューで値を確認してください。
+          </p>
+          <button className={buttonClass} type="button" onClick={() => void prepareExport()}>
+            登録済みデータのCSVを準備
+          </button>
+          {exportTotal > 0 && (
+            <div className="mt-3">
+              <p>
+                {exportTotal}件を{exportFiles.length}
+                ファイルに分割しました。各ファイルは1,000行・1MiB以内です。
+              </p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {exportFiles.map((file, index) => (
+                  <button
+                    key={index}
+                    className={buttonClass}
+                    type="button"
+                    onClick={() => downloadExport(file, index)}
+                  >
+                    CSV {index + 1}/{exportFiles.length} をダウンロード
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          {exportPrepared && exportTotal === 0 && (
+            <p className="mt-2 text-muted">登録データがないため、ファイルはありません。</p>
+          )}
+        </div>
         <label className="grid gap-2 text-sm">
           CSVファイル
           <input
