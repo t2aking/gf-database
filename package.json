@@ -24,7 +24,7 @@
     "prepare": "vp config --no-agent"
   },
   "dependencies": {
-    "@hono/node-server": "2.1.1",
+    "@hono/node-server": "2.1.6",
     "@hono/zod-validator": "0.9.1",
     "@modelcontextprotocol/server": "2.0.0",
     "dotenv": "18.0.2",
